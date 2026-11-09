@@ -1,0 +1,3 @@
+Now ledger.py balance:
+Update CLI to print category labels for tuple keys:
+Done. All 4 tests pass; mixed/single currency behavior verified.

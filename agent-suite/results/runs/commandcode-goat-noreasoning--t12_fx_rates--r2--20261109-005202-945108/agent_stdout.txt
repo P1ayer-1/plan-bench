@@ -1,0 +1,5 @@
+I'll start by exploring the codebase structure.
+Now I'll create the FX module and add `balance_in` to Ledger.
+The spec says the USD bridge uses rules 1–3 only (no chaining), so GBP→USD needs a GBP→USD or USD→GBP rate. Let me fix my test expectation.
+Works. Let me add tests to the suite to cover the new module.
+All 14 tests pass. Implemented `ledger/fx.py` with `RateTable`, `convert`, and `Ledger.balance_in`, rounding only once at the end.

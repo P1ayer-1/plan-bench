@@ -1,0 +1,298 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | sort && echo "---" && git status
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+---
+On branch master
+nothing to commit, working tree clean
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead README.md
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/parser.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+@@ -2,8 +2,12 @@
+ 
+ CENT = Decimal("0.01")
+ 
+ 
++class CurrencyMismatch(ValueError):
++    """Raised when operating on Money values in different currencies."""
++
++
+ class Money:
+     """An amount of money in a single currency, stored to the cent."""
+ 
+     def __init__(self, amount, currency="USD"):
+
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+@@ -14,13 +14,21 @@
+     self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+     self.currency = currency
+ 
+ def __add__(self, other):
++    self._check_currency(other)
+     return Money(self.amount + other.amount, self.currency)
+ 
+ def __sub__(self, other):
++    self._check_currency(other)
+     return Money(self.amount - other.amount, self.currency)
+ 
++def _check_currency(self, other):
++    if self.currency != other.currency:
++        raise CurrencyMismatch(
++            f"currency mismatch: {self.currency} != {other.currency}"
++        )
++
+ def __mul__(self, factor):
+     return Money(self.amount * Decimal(str(factor)), self.currency)
+ 
+ def __neg__(self):
+
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/money.py
+@@ -40,8 +40,9 @@
+ def __hash__(self):
+     return hash((self.amount, self.currency))
+ 
+ def __lt__(self, other):
++    self._check_currency(other)
+     return self.amount < other.amount
+ 
+ def __repr__(self):
+     return f"Money('{self.amount}', '{self.currency}')"
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/ledger.py
+@@ -32,12 +32,16 @@
+         out.append(tx)
+     return out
+ 
+ def balance(self):
+-    total = Money.zero()
++    """Return a dict mapping currency to the total Money for that currency."""
++    totals = {}
+     for tx in self.transactions:
+-        total = total + tx.amount
+-    return total
++        currency = tx.amount.currency
++        if currency not in totals:
++            totals[currency] = Money.zero(currency)
++        totals[currency] = totals[currency] + tx.amount
++    return totals
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
+
+[0m
+[0m← [0mEdit ledger/report.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/report.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/report.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/report.py
+@@ -1,17 +1,29 @@
+ from .money import Money
+ 
+ 
+ def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+-    result = {}
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month.
++
++    When a month contains more than one currency, the category keys are
++    ``(category, currency)`` tuples so totals are never mixed. Months with a
++    single currency keep plain category keys.
++    """
++    grouped = {}
+     for tx in ledger.transactions:
+         m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++        grouped.setdefault(m, []).append(tx)
++
++    result = {}
++    for m, txs in grouped.items():
++        multi_currency = len({tx.amount.currency for tx in txs}) > 1
++        cats = {}
++        for tx in txs:
++            key = (tx.category, tx.amount.currency) if multi_currency else tx.category
++            if key not in cats:
++                cats[key] = Money.zero(tx.amount.currency)
++            cats[key] = cats[key] + tx.amount
++        result[m] = cats
+     return dict(sorted(result.items()))
+ 
+ 
+ def largest_expenses(ledger, n=3):
+
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/__init__.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/__init__.py
+@@ -1,2 +1,2 @@
+-from .money import Money
++from .money import Money, CurrencyMismatch
+ from .ledger import Ledger, Transaction
+
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/cli.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/ledger/cli.py
+@@ -16,9 +16,13 @@
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+-                print(f"  {cat}: {total}")
++                if isinstance(cat, tuple):
++                    label = f"{cat[0]} ({cat[1]})"
++                else:
++                    label = cat
++                print(f"  {label}: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m← [0mEdit tests/test_basic.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+@@ -1,6 +1,7 @@
+ from datetime import date
+-from ledger import Money, Ledger, Transaction
++import pytest
++from ledger import Money, Ledger, Transaction, CurrencyMismatch
+ from ledger.parser import parse_csv
+ from ledger.report import monthly_summary
+ 
+ CSV = """date,description,amount,category,tags
+
+[0m
+[0m← [0mEdit tests/test_basic.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+@@ -14,14 +14,36 @@
+ def test_money_add():
+     assert Money("1.10") + Money("2.20") == Money("3.30")
+ 
+ 
++def test_currency_mismatch():
++    with pytest.raises(CurrencyMismatch):
++        Money("1.00", "USD") + Money("1.00", "EUR")
++    with pytest.raises(CurrencyMismatch):
++        Money("1.00", "USD") - Money("1.00", "EUR")
++    with pytest.raises(CurrencyMismatch):
++        Money("1.00", "USD") < Money("1.00", "EUR")
++
++
+ def test_parse_and_balance():
+     l = Ledger(parse_csv(CSV))
+     assert len(l.transactions) == 3
+-    assert l.balance() == Money("1795.50")
++    assert l.balance() == {"USD": Money("1795.50")}
+ 
+ 
++def test_balance_mixed_currencies():
++    l = Ledger([
++        Transaction(date(2026, 1, 1), "a", Money("10.00", "USD"), "x"),
++        Transaction(date(2026, 1, 2), "b", Money("5.00", "EUR"), "x"),
++        Transaction(date(2026, 1, 3), "c", Money("2.50", "USD"), "x"),
++    ])
++    assert l.balance() == {
++        "USD": Money("12.50", "USD"),
++        "EUR": Money("5.00", "EUR"),
++    }
++    assert Ledger().balance() == {}
++
++
+ def test_query_category():
+     l = Ledger(parse_csv(CSV))
+     assert [t.description for t in l.query(category="food")] == ["Coffee"]
+ 
+
+[0m
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit tests/test_basic.py
+Index: /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
++++ /suite/results/runs/deepinfra-reasoning--t06_currency--r5--20261109-014015-261045/ws/tests/test_basic.py
+@@ -51,4 +51,17 @@
+ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++def test_summary_mixed_currency_month():
++    l = Ledger([
++        Transaction(date(2026, 1, 1), "a", Money("10.00", "USD"), "food"),
++        Transaction(date(2026, 1, 2), "b", Money("5.00", "EUR"), "food"),
++        Transaction(date(2026, 1, 3), "c", Money("2.00", "USD"), "food"),
++        Transaction(date(2026, 2, 1), "d", Money("7.00", "USD"), "food"),
++    ])
++    s = monthly_summary(l)
++    assert s["2026-01"][("food", "USD")] == Money("12.00", "USD")
++    assert s["2026-01"][("food", "EUR")] == Money("5.00", "EUR")
++    assert s["2026-02"]["food"] == Money("7.00", "USD")
+
+[0m
+[0m$ [0mpython -m pytest -q
+.......                                                                  [100%]
+7 passed in 0.78s
+[0m
+[0m$ [0mgit diff --stat && python -c "from ledger import CurrencyMismatch; print(CurrencyMismatch.__mro__)"
+ledger/__init__.py  |  2 +-
+ ledger/cli.py       |  6 +++++-
+ ledger/ledger.py    | 10 +++++++---
+ ledger/money.py     | 13 +++++++++++++
+ ledger/report.py    | 26 +++++++++++++++++++-------
+ tests/test_basic.py | 40 ++++++++++++++++++++++++++++++++++++++--
+ 6 files changed, 83 insertions(+), 14 deletions(-)
+(<class 'ledger.money.CurrencyMismatch'>, <class 'ValueError'>, <class 'Exception'>, <class 'BaseException'>, <class 'object'>)
+[0m

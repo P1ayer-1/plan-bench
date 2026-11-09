@@ -1,0 +1,11 @@
+I'll explore the codebase first.
+Now implementing the changes.
+Now update the CLI to handle both key shapes and add a balance command, and update tests.
+All 8 tests pass. Summary of changes:
+
+- `ledger/money.py`: added `CurrencyMismatch(ValueError)`; `+`, `-`, `==`, `!=`, `<`, `<=`, `>`, `>=` now check currencies and raise it on mismatch.
+- `ledger/ledger.py:balance()` returns `{currency: Money}` (`{}` when empty).
+- `ledger/report.py:monthly_summary` groups by month then category; uses `(category, currency)` keys only in months with >1 currency.
+- `ledger/__init__.py`: exports `CurrencyMismatch`.
+- `ledger/cli.py`: handles tuple keys and adds a `balance` subcommand.
+- Tests updated/added for mismatches, mixed-currency balances and summaries.

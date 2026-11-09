@@ -1,0 +1,268 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..0bc558c 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .query import search as _search
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,10 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching the search query, in original order."""
++        return _search(self.transactions, query)
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/query.py b/ledger/query.py
+new file mode 100644
+index 0000000..828609c
+--- /dev/null
++++ b/ledger/query.py
+@@ -0,0 +1,239 @@
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++from operator import eq, ge, gt, le, lt
++
++from .money import Money
++
++_OPS = {"<": lt, "<=": le, ">": gt, ">=": ge, "=": eq}
++
++_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
++_AMOUNT_RE = re.compile(r"amount\s*(<=|>=|<|>|=)\s*(" + _NUMBER + r")")
++_DATE_RE = re.compile(r"date\s*(<=|>=|<|>|=)\s*(\d{4}-\d{2}-\d{2})")
++_FIELD_RE = re.compile(r"(category|tag|desc):")
++_FIELD_START_RE = re.compile(r"(amount|date)(?=\s|[<>=]|$)")
++
++
++class _Token:
++    __slots__ = ("kind", "value")
++
++    def __init__(self, kind, value=None):
++        self.kind = kind
++        self.value = value
++
++
++def _read_quoted(s, i):
++    i += 1
++    out = []
++    while i < len(s):
++        c = s[i]
++        if c == "\\":
++            if i + 1 >= len(s):
++                raise ValueError("unterminated quote")
++            nxt = s[i + 1]
++            if nxt in ('"', "\\"):
++                out.append(nxt)
++                i += 2
++                continue
++            out.append("\\")
++            i += 1
++            continue
++        if c == '"':
++            return "".join(out), i + 1
++        out.append(c)
++        i += 1
++    raise ValueError("unterminated quote")
++
++
++def _lex(s):
++    tokens = []
++    i = 0
++    n = len(s)
++
++    def boundary(j):
++        return j >= n or s[j].isspace() or s[j] in "()"
++
++    while i < n:
++        c = s[i]
++        if c.isspace():
++            i += 1
++            continue
++        if c == "(":
++            tokens.append(_Token("LPAREN"))
++            i += 1
++            continue
++        if c == ")":
++            tokens.append(_Token("RPAREN"))
++            i += 1
++            continue
++        if c == '"':
++            raise ValueError("unexpected quoted string")
++
++        m = _FIELD_RE.match(s, i)
++        if m:
++            field = m.group(1)
++            j = m.end()
++            if j < n and s[j] == '"':
++                value, j = _read_quoted(s, j)
++            else:
++                k = j
++                while k < n and not s[k].isspace() and s[k] not in '()"':
++                    k += 1
++                value = s[j:k]
++                if value == "":
++                    raise ValueError(f"missing value for {field}")
++                j = k
++            tokens.append(_Token("TERM", (field, value)))
++            i = j
++            continue
++
++        m = _FIELD_START_RE.match(s, i)
++        if m:
++            field = m.group(1)
++            m2 = (_AMOUNT_RE if field == "amount" else _DATE_RE).match(s, i)
++            if not m2:
++                raise ValueError(f"malformed {field} term")
++            op, raw = m2.group(1), m2.group(2)
++            end = m2.end()
++            if not boundary(end):
++                raise ValueError(f"malformed {field} term")
++            if field == "amount":
++                try:
++                    value = Decimal(raw)
++                except InvalidOperation:
++                    raise ValueError(f"invalid number: {raw}")
++                tokens.append(_Token("TERM", ("amount", op, value)))
++            else:
++                try:
++                    value = date.fromisoformat(raw)
++                except ValueError:
++                    raise ValueError(f"invalid date: {raw}")
++                tokens.append(_Token("TERM", ("date", op, value)))
++            i = end
++            continue
++
++        k = i
++        while k < n and not s[k].isspace() and s[k] not in '()"':
++            k += 1
++        raw = s[i:k]
++        upper = raw.upper()
++        if upper in ("AND", "OR", "NOT"):
++            tokens.append(_Token(upper))
++            i = k
++            continue
++        if ":" in raw:
++            raise ValueError(f"unknown field: {raw}")
++        raise ValueError(f"unexpected token: {raw}")
++
++    tokens.append(_Token("EOF"))
++    return tokens
++
++
++def _term_predicate(term):
++    kind = term[0]
++    if kind == "category":
++        value = term[1].lower()
++        return lambda tx: tx.category.lower() == value
++    if kind == "tag":
++        value = term[1].lower()
++        return lambda tx: any(str(t).lower() == value for t in tx.tags)
++    if kind == "desc":
++        value = term[1].lower()
++        return lambda tx: value in tx.description.lower()
++    if kind == "amount":
++        op, number = term[1], term[2]
++        compare = _OPS[op]
++
++        def matches_amount(tx):
++            amount = tx.amount.amount if isinstance(tx.amount, Money) else Decimal(str(tx.amount))
++            return compare(amount, number)
++
++        return matches_amount
++    if kind == "date":
++        op, value = term[1], term[2]
++        compare = _OPS[op]
++        return lambda tx: compare(tx.date, value)
++    raise ValueError(f"unknown term: {term}")
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        return self.tokens[self.pos]
++
++    def take(self):
++        token = self.tokens[self.pos]
++        self.pos += 1
++        return token
++
++    def parse(self):
++        node = self.parse_or()
++        if self.peek().kind != "EOF":
++            raise ValueError("unexpected token")
++        return node
++
++    def parse_or(self):
++        left = self.parse_and()
++        while self.peek().kind == "OR":
++            self.take()
++            right = self.parse_and()
++            left = _or(left, right)
++        return left
++
++    def parse_and(self):
++        left = self.parse_not()
++        while True:
++            kind = self.peek().kind
++            if kind == "AND":
++                self.take()
++                right = self.parse_not()
++                left = _and(left, right)
++            elif kind in ("NOT", "LPAREN", "TERM"):
++                right = self.parse_not()
++                left = _and(left, right)
++            else:
++                break
++        return left
++
++    def parse_not(self):
++        if self.peek().kind == "NOT":
++            self.take()
++            operand = self.parse_not()
++            return lambda tx, op=operand: not op(tx)
++        return self.parse_primary()
++
++    def parse_primary(self):
++        token = self.peek()
++        if token.kind == "LPAREN":
++            self.take()
++            if self.peek().kind == "RPAREN":
++                raise ValueError("empty group")
++            node = self.parse_or()
++            if self.peek().kind != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.take()
++            return node
++        if token.kind == "TERM":
++            self.take()
++            return _term_predicate(token.value)
++        raise ValueError("missing operand")
++
++
++def _and(left, right):
++    return lambda tx: left(tx) and right(tx)
++
++
++def _or(left, right):
++    return lambda tx: left(tx) or right(tx)
++
++
++def search(transactions, query):
++    """Return transactions matching a query string, preserving original order."""
++    if not query or not query.strip():
++        return list(transactions)
++    tokens = _lex(query)
++    predicate = _Parser(tokens).parse()
++    return [tx for tx in transactions if predicate(tx)]

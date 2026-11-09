@@ -1,0 +1,7 @@
+Tests pass. Adding `add_recurring` cleanly inside the class instead of monkeypatching:
+Quick sanity check of the tricky date logic:
+All correct. Task complete:
+
+- `ledger/recurring.py`: `Recurrence` dataclass, `occurrences`, `expand`
+- `Ledger.add_recurring` in `ledger/ledger.py`
+- 4 existing tests pass

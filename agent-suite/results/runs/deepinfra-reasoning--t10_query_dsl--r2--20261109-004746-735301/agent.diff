@@ -1,0 +1,275 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..a1bc76e 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import compile_query
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,11 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching a search-language query, in order."""
++        predicate = compile_query(query)
++        return [tx for tx in self.transactions if predicate(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..47bdb8d
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,245 @@
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++_NUMBER = re.compile(r"-?\d+(?:\.\d+)?\Z")
++_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
++
++_OPERATORS = ("<=", ">=", "<", ">", "=")
++
++
++def _parse_number(text):
++    if not _NUMBER.match(text):
++        raise ValueError(f"invalid number: {text!r}")
++    try:
++        return Decimal(text)
++    except InvalidOperation:
++        raise ValueError(f"invalid number: {text!r}") from None
++
++
++def _parse_date(text):
++    if not _DATE.match(text):
++        raise ValueError(f"invalid date: {text!r}")
++    try:
++        return date.fromisoformat(text)
++    except ValueError:
++        raise ValueError(f"invalid date: {text!r}") from None
++
++
++def _compare(op):
++    if op == "<":
++        return lambda a, b: a < b
++    if op == "<=":
++        return lambda a, b: a <= b
++    if op == ">":
++        return lambda a, b: a > b
++    if op == ">=":
++        return lambda a, b: a >= b
++    return lambda a, b: a == b
++
++
++def _tokenize(query):
++    # Tokens are (kind, value, start, end) where start/end are source offsets.
++    tokens = []
++    i = 0
++    n = len(query)
++    while i < n:
++        c = query[i]
++        if c.isspace():
++            i += 1
++            continue
++        if c == "(":
++            tokens.append(("lparen", c, i, i + 1))
++            i += 1
++            continue
++        if c == ")":
++            tokens.append(("rparen", c, i, i + 1))
++            i += 1
++            continue
++        if c == '"':
++            start = i
++            i += 1
++            chars = []
++            closed = False
++            while i < n:
++                ch = query[i]
++                if ch == "\\" and i + 1 < n and query[i + 1] in ('"', "\\"):
++                    chars.append(query[i + 1])
++                    i += 2
++                    continue
++                if ch == '"':
++                    closed = True
++                    i += 1
++                    break
++                chars.append(ch)
++                i += 1
++            if not closed:
++                raise ValueError("unterminated quoted string")
++            tokens.append(("quoted", "".join(chars), start, i))
++            continue
++
++        start = i
++        while i < n and not query[i].isspace() and query[i] not in '()"':
++            i += 1
++        word = query[start:i]
++        keyword = word.lower()
++        if keyword in ("and", "or", "not"):
++            tokens.append((keyword, word, start, i))
++        else:
++            tokens.append(("word", word, start, i))
++    return tokens
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def _peek(self):
++        if self.pos < len(self.tokens):
++            return self.tokens[self.pos]
++        return None
++
++    def _advance(self):
++        token = self._peek()
++        self.pos += 1
++        return token
++
++    def parse(self):
++        if not self.tokens:
++            return lambda tx: True
++        predicate = self._parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError(f"unexpected token: {self._peek()[1]!r}")
++        return predicate
++
++    def _parse_or(self):
++        left = self._parse_and()
++        while self._peek() is not None and self._peek()[0] == "or":
++            self._advance()
++            right = self._parse_and()
++            previous = left
++            left = lambda tx, a=previous, b=right: a(tx) or b(tx)
++        return left
++
++    def _parse_and(self):
++        left = self._parse_unary()
++        while True:
++            token = self._peek()
++            kind = token[0] if token is not None else None
++            if kind == "and":
++                self._advance()
++                right = self._parse_unary()
++            elif kind in ("not", "word", "quoted", "lparen"):
++                right = self._parse_unary()
++            else:
++                break
++            previous = left
++            left = lambda tx, a=previous, b=right: a(tx) and b(tx)
++        return left
++
++    def _parse_unary(self):
++        token = self._peek()
++        if token is not None and token[0] == "not":
++            self._advance()
++            operand = self._parse_unary()
++            return lambda tx, p=operand: not p(tx)
++        return self._parse_primary()
++
++    def _parse_primary(self):
++        token = self._peek()
++        if token is None:
++            raise ValueError("unexpected end of query")
++        kind, value = token[0], token[1]
++        if kind == "lparen":
++            self._advance()
++            if self._peek() is not None and self._peek()[0] == "rparen":
++                raise ValueError("empty group")
++            predicate = self._parse_or()
++            if self._peek() is None or self._peek()[0] != "rparen":
++                raise ValueError("unbalanced parentheses")
++            self._advance()
++            return predicate
++        if kind == "word":
++            return self._parse_term()
++        raise ValueError(f"unexpected token: {value!r}")
++
++    def _parse_term(self):
++        word_token = self._advance()
++        word = word_token[1]
++
++        if ":" in word:
++            field, _, value = word.partition(":")
++            if field not in ("category", "tag", "desc"):
++                raise ValueError(f"unknown field: {field!r}")
++            if value == "":
++                quoted = self._peek()
++                if (
++                    quoted is None
++                    or quoted[0] != "quoted"
++                    or word_token[3] != quoted[2]
++                ):
++                    raise ValueError(f"missing value for {field}")
++                self._advance()
++                value = quoted[1]
++            return self._value_predicate(field, value)
++
++        field = None
++        remainder = ""
++        if word == "amount" or (
++            word.startswith("amount") and len(word) > len("amount") and word[len("amount")] in "<>="
++        ):
++            field = "amount"
++            remainder = word[len("amount"):]
++        elif word == "date" or (
++            word.startswith("date") and len(word) > len("date") and word[len("date")] in "<>="
++        ):
++            field = "date"
++            remainder = word[len("date"):]
++        if field is None:
++            raise ValueError(f"invalid term: {word!r}")
++
++        buffer = remainder
++        if buffer == "":
++            token = self._peek()
++            if token is None or token[0] != "word":
++                raise ValueError(f"missing operator for {field}")
++            self._advance()
++            buffer = token[1]
++
++        op = None
++        for candidate in _OPERATORS:
++            if buffer.startswith(candidate):
++                op = candidate
++                break
++        if op is None:
++            raise ValueError(f"invalid operator: {buffer!r}")
++
++        operand = buffer[len(op):]
++        if operand == "":
++            token = self._peek()
++            if token is None or token[0] != "word":
++                raise ValueError(f"missing value for {field}")
++            self._advance()
++            operand = token[1]
++
++        compare = _compare(op)
++        if field == "amount":
++            number = _parse_number(operand)
++            return lambda tx, c=compare, n=number: c(tx.amount.amount, n)
++        when = _parse_date(operand)
++        return lambda tx, c=compare, d=when: c(tx.date, d)
++
++    @staticmethod
++    def _value_predicate(field, value):
++        folded = value.lower()
++        if field == "category":
++            return lambda tx, v=folded: tx.category.lower() == v
++        if field == "tag":
++            return lambda tx, v=folded: any(tag.lower() == v for tag in tx.tags)
++        return lambda tx, v=folded: v in tx.description.lower()
++
++
++def compile_query(query):
++    """Compile a query string into a predicate over transactions."""
++    return _Parser(_tokenize(query)).parse()

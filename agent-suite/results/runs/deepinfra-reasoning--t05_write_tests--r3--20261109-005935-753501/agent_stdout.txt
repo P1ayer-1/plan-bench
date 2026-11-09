@@ -1,0 +1,4 @@
+I'll start by exploring the codebase to understand the functions I need to test.
+Now I understand the behaviors. Let me write comprehensive tests.
+My test assumed default `n=3` returns four items. Fixing that test to explicitly request all four.
+Created `tests/test_report.py` with 24 tests covering month/category grouping, chronological sorting, zero-padding, sign handling, currency preservation, limits, stable ties, exclusion of non-expenses, and immutability. `python -m pytest -q` passes: 24 passed.

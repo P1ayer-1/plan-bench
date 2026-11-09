@@ -1,0 +1,4 @@
+I'll start by exploring the codebase structure.
+Now implementing changes.
+I accidentally duplicated `dedupe` in ledger.py; fixing that and updating CLI/tests.
+All changes complete and tests pass. Added `CurrencyMismatch` (exported from `ledger`), currency-checked add/sub/`<`, per-currency `balance()` dict, and mixed-currency `monthly_summary` with `(category, currency)` keys only for multi-currency months; CLI and existing test updated.

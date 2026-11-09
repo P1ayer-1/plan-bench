@@ -1,0 +1,1 @@
+Created `ledger/reconcile.py` with `reconcile` and the `Reconciliation` dataclass. Implementation groups candidate pairs by amount, splits into connected components, and runs min-cost max-flow per component to maximize pairs then minimize total date distance. Sorting `matched` by ledger index preserves required order. All 4 existing tests pass.

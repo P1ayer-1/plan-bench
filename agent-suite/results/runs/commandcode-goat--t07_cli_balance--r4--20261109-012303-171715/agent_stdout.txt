@@ -1,0 +1,1 @@
+Added `balance` with `--since`, `--until`, and `--category` filters in `ledger/cli.py:10`. Invalid dates error to stderr with exit 2. Tests pass (4 passed).

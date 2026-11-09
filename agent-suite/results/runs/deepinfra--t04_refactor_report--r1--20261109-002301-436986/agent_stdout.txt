@@ -1,0 +1,1 @@
+Done. Refactored `ledger/report.py` with `group_by_month`, `totals_by_category`, rewritten `monthly_summary`, and new `category_share`. All 4 tests pass.

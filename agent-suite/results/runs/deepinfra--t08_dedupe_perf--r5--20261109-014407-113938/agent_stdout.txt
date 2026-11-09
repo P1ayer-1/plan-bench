@@ -1,0 +1,1 @@
+Replaced the O(n²) list scan with a `set` membership check in `dedupe()`. All tests pass; 200k transactions now dedupe in ~0.35s. Behavior unchanged.

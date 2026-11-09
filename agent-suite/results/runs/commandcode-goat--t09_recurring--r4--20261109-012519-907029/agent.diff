@@ -1,0 +1,127 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..af80b8f 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .recurring import Recurrence, expand, occurrences
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..964248e 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -19,6 +19,13 @@ class Ledger:
+     def add(self, tx):
+         self.transactions.append(tx)
+ 
++    def add_recurring(self, rule, window_start, window_end):
++        from .recurring import expand
++
++        transactions = expand(rule, window_start, window_end)
++        self.transactions.extend(transactions)
++        return len(transactions)
++
+     def query(self, category=None, start=None, end=None):
+         """Return transactions matching all given filters (dates inclusive)."""
+         out = []
+diff --git a/ledger/recurring.py b/ledger/recurring.py
+new file mode 100644
+index 0000000..aa2e9d8
+--- /dev/null
++++ b/ledger/recurring.py
+@@ -0,0 +1,95 @@
++import calendar
++from dataclasses import dataclass
++from datetime import date, timedelta
++
++from .ledger import Transaction
++from .money import Money
++
++FREQUENCIES = ("weekly", "monthly", "yearly")
++
++
++@dataclass(frozen=True)
++class Recurrence:
++    description: str
++    amount: Money
++    category: str
++    start: date
++    freq: str
++    interval: int = 1
++    count: int | None = None
++    until: date | None = None
++    skip: tuple = ()
++
++
++def _validate(rule):
++    if rule.freq not in FREQUENCIES:
++        raise ValueError(f"unsupported frequency: {rule.freq}")
++    if rule.interval < 1:
++        raise ValueError("interval must be at least 1")
++    if rule.count is not None and rule.count < 0:
++        raise ValueError("count must not be negative")
++
++
++def _add_months(start, months):
++    total = start.year * 12 + (start.month - 1) + months
++    year, month = divmod(total, 12)
++    month += 1
++    day = min(start.day, calendar.monthrange(year, month)[1])
++    return date(year, month, day)
++
++
++def _occurrence(rule, k):
++    if rule.freq == "weekly":
++        return rule.start + timedelta(days=7 * rule.interval * k)
++    if rule.freq == "monthly":
++        return _add_months(rule.start, rule.interval * k)
++    return _add_months(rule.start, rule.interval * k * 12)
++
++
++def _first_k(rule, window_start):
++    if window_start <= rule.start:
++        return 0
++    if rule.freq == "weekly":
++        step = 7 * rule.interval
++        k = (window_start - rule.start).days // step
++    elif rule.freq == "monthly":
++        months = (window_start.year - rule.start.year) * 12 + (
++            window_start.month - rule.start.month
++        )
++        k = months // rule.interval
++    else:
++        years = window_start.year - rule.start.year
++        k = years // rule.interval
++    return max(0, k - 1)
++
++
++def occurrences(rule, window_start, window_end):
++    _validate(rule)
++    if window_end < window_start:
++        return []
++
++    end = window_end if rule.until is None else min(window_end, rule.until)
++    skip = set(rule.skip)
++    out = []
++    k = _first_k(rule, window_start)
++    while rule.count is None or k < rule.count:
++        occurred = _occurrence(rule, k)
++        if occurred > end:
++            break
++        if occurred >= window_start and occurred not in skip:
++            out.append(occurred)
++        k += 1
++    return out
++
++
++def expand(rule, window_start, window_end):
++    return [
++        Transaction(
++            date=occurred,
++            description=rule.description,
++            amount=rule.amount,
++            category=rule.category,
++            tags=("recurring",),
++        )
++        for occurred in occurrences(rule, window_start, window_end)
++    ]

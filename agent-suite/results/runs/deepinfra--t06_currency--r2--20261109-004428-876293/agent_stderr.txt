@@ -1,0 +1,131 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mfind . -type f -name "*.py" | head -50 && echo "---" && ls -la
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+---
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:44 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:44 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 650 Nov  9 00:44 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mWrite ledger/money.py
+Wrote file successfully.
+[0m
+[0m← [0mWrite ledger/ledger.py
+Wrote file successfully.
+[0m
+[0m← [0mWrite ledger/__init__.py
+Wrote file successfully.
+[0m
+[0m← [0mWrite ledger/report.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/ledger.py
+@@ -51,15 +51,4 @@
+         if key not in [(t.date, t.description, t.amount) for t in result]:
+             result.append(tx)
+     self.transactions = result
+     return self
+-
+-def dedupe(self):
+-    """Remove duplicate transactions (same date, description and amount),
+-    keeping the first occurrence and preserving order."""
+-    result = []
+-    for tx in self.transactions:
+-        key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
+-            result.append(tx)
+-    self.transactions = result
+-    return self
+
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/cli.py
++++ /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/ledger/cli.py
+@@ -15,10 +15,14 @@
+         ledger = Ledger(parse_csv(f.read()))
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+-            for cat, total in sorted(cats.items()):
+-                print(f"  {cat}: {total}")
++            for key, total in sorted(cats.items()):
++                if isinstance(key, tuple):
++                    cat, currency = key
++                    print(f"  {cat} ({currency}): {total}")
++                else:
++                    print(f"  {key}: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m← [0mEdit tests/test_basic.py
+Index: /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/tests/test_basic.py
+===================================================================
+--- /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/tests/test_basic.py
++++ /suite/results/runs/deepinfra--t06_currency--r2--20261109-004428-876293/ws/tests/test_basic.py
+@@ -16,9 +16,9 @@
+ 
+ def test_parse_and_balance():
+     l = Ledger(parse_csv(CSV))
+     assert len(l.transactions) == 3
+-    assert l.balance() == Money("1795.50")
++    assert l.balance() == {"USD": Money("1795.50")}
+ 
+ 
+ def test_query_category():
+     l = Ledger(parse_csv(CSV))
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.48s
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Money, CurrencyMismatch, Ledger, Transaction
+from ledger.report import monthly_summary
+from datetime import date
+try:
+    Money(1,"USD")+Money(1,"EUR")
+except CurrencyMismatch as e: print("add ok", e)
+try:
+    Money(1,"USD")<Money(1,"EUR")
+except CurrencyMismatch as e: print("lt ok", e)
+print(Ledger().balance())
+txs=[Transaction(date(2026,1,1),"a",Money(1,"USD"),"food"),Transaction(date(2026,1,2),"b",Money(2,"EUR"),"food"),Transaction(date(2026,2,1),"c",Money(3,"USD"),"food")]
+print(monthly_summary(Ledger(txs)))
+print(Ledger(txs).balance())
+EOF
+add ok currency mismatch: USD != EUR
+lt ok currency mismatch: USD != EUR
+{}
+{'2026-01': {('food', 'USD'): Money('1.00', 'USD'), ('food', 'EUR'): Money('2.00', 'EUR')}, '2026-02': {'food': Money('3.00', 'USD')}}
+{'USD': Money('4.00', 'USD'), 'EUR': Money('2.00', 'EUR')}
+[0m

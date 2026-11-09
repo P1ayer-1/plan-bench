@@ -1,0 +1,38 @@
+ parse
+    node = self.parse_or()
+ledger/query.py:191: in parse_or
+    node = self.parse_and()
+ledger/query.py:208: in parse_and
+    node = _and(node, self.parse_not())
+ledger/query.py:219: in parse_not
+    return self.parse_primary()
+ledger/query.py:254: in parse_primary
+    return _term(raw)
+ledger/query.py:117: in _term
+    field, value = _split_value(raw)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+raw = 'and'
+
+    def _split_value(raw):
+        """Split a WORD token into (field, raw_value)."""
+        if ":" in raw:
+            field, _, value = raw.partition(":")
+            if field not in FIELDS:
+                raise ValueError(f"unknown field: {field!r}")
+            if field in ("amount", "date"):
+                raise ValueError(f"missing operator for {field!r}")
+            if value == "":
+                raise ValueError(f"missing value for {field!r}")
+            return field, value
+        field = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
+        if field not in ("amount", "date"):
+            if field in FIELDS:
+                raise ValueError(f"missing operator for {field!r}")
+>           raise ValueError(f"expected a term, got {raw!r}")
+E           ValueError: expected a term, got 'and'
+
+ledger/query.py:97: ValueError
+=========================== short test summary info ============================
+FAILED _hidden_test_t10_query_dsl.py::test_keywords_case_insensitive - ValueE...
+1 failed, 18 passed in 0.32s

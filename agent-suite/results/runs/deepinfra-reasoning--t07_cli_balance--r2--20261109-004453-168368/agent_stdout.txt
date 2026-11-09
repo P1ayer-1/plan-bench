@@ -1,0 +1,2 @@
+I'll explore the codebase first.
+Implemented `balance` in `ledger/cli.py:6` with `--since`, `--until`, and `--category` filters, inclusive dates, zero-balance output, and argparse date validation (stderr + exit 2). Test suite passes: `4 passed`.

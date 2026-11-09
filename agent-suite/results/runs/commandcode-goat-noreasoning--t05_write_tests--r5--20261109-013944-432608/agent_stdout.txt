@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 33 tests covering month grouping/sorting/padding, per-category summation, sign handling, decimal accumulation, currency preservation, and boundary dates for `monthly_summary`; plus expense filtering, most-negative-first sorting, `n` limits/ties, and non-mutation for `largest_expenses`. All tests pass (`33 passed`).

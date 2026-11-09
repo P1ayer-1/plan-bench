@@ -1,0 +1,876 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -name "*.py" -not -path "./.git/*" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:29 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:29 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 657 Nov  9 00:30 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m$ [0mcat ledger/ledger.py ledger/__init__.py ledger/parser.py ledger/money.py tests/test_basic.py README.md
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat ledger/cli.py ledger/report.py; cat opencode.json
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat-noreasoning/run/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}
+[0m
+[0m← [0mWrite ledger/search.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/ledger.py
+@@ -18,8 +18,13 @@
+ 
+ def add(self, tx):
+     self.transactions.append(tx)
+ 
++def search(self, query):
++    """Return transactions matching a search query, in their original order."""
++    from .search import search as _search
++    return _search(self, query)
++
+ def query(self, category=None, start=None, end=None):
+     """Return transactions matching all given filters (dates inclusive)."""
+     out = []
+     for tx in self.transactions:
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Transaction, Money
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),'Say "hi" \\ (x)',Money("-10"),"Food",("Work",)),
+]
+l=Ledger(txs)
+def d(q):
+    print(repr(q),'->',[t.description for t in l.search(q)])
+for q in ['','   ','category:food','CATEGORY:FOOD tag:work','desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5',
+          'amount >= 10.50','amount=0','amount < -20','date>=2026-01-01','date<2026-02-01',
+          'NOT tag:work','desc:"say \\"hi\\" \\\\ (x)"','(category:food)','category:food AND','OR tag:x','NOT','foo:bar','()','(category:food','category:food)','amount<-x','date>=2026-13-01','desc:"abc','amount<','amount = -4.5']:
+    try: d(q)
+    except ValueError as e: print(repr(q),'ValueError:',e)
+EOF
+'' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'   ' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'category:food' -> ['Coffee Shop', 'Say "hi" \\ (x)']
+'CATEGORY:FOOD tag:work' ValueError: unknown field 'CATEGORY'
+'desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5' ValueError: missing value for desc
+'amount >= 10.50' ValueError: invalid term 'amount'
+'amount=0' ValueError: invalid term 'amount'
+'amount < -20' ValueError: invalid term 'amount'
+'date>=2026-01-01' ValueError: invalid term 'date'
+'date<2026-02-01' ValueError: invalid term 'date'
+'NOT tag:work' -> ['Coffee Shop', 'Salary', 'Rent']
+'desc:"say \\"hi\\" \\\\ (x)"' ValueError: missing value for desc
+'(category:food)' -> ['Coffee Shop', 'Say "hi" \\ (x)']
+'category:food AND' ValueError: missing operand
+'OR tag:x' ValueError: missing operand
+'NOT' ValueError: missing operand
+'foo:bar' ValueError: unknown field 'foo'
+'()' ValueError: empty group
+'(category:food' ValueError: unbalanced parentheses
+'category:food)' ValueError: unexpected token
+'amount<-x' ValueError: invalid term 'amount'
+'date>=2026-13-01' ValueError: invalid term 'date'
+'desc:"abc' ValueError: unterminated quote
+'amount<' ValueError: invalid term 'amount'
+'amount = -4.5' ValueError: invalid term 'amount'
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -83,10 +83,8 @@
+     i += len(op)
+     continue
+ start = i
+ while i < n and not text[i].isspace() and text[i] not in '()"':
+-    if text[i] in _OPS and c not in _OPS:
+-        break
+     i += 1
+ word = text[start:i]
+ if not word:
+     raise ValueError(f"unexpected character {text[start]!r}")
+
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -91,70 +91,93 @@
+         tokens.append(_Token("WORD", word))
+     return tokens
+ 
+ 
+-def _tokenize_field_term(tokens, pos):
+-    """Collect raw text chunks between field:/operator boundaries."""
+-    kind, word = tokens[pos].kind, tokens[pos].value
+-    if kind in ("LPAREN", "RPAREN"):
+-        return None, pos
+-    if kind == "OP":
+-        raise ValueError(f"unexpected operator {word!r}")
+-    if kind == "STRING":
+-        raise ValueError(f"unexpected string {word!r}")
++def _split_field(word):
++    """Split a bare word at the first ':' -> (field, remainder) or None."""
++    if ":" not in word:
++        return None
++    field, rest = word.split(":", 1)
++    return field, rest
++
++
++def _read_value(tokens, pos):
++    """Read a VALUE starting at ``pos``: a bare word or a quoted string."""
++    tok = tokens[pos]
++    if tok.kind == "STRING":
++        return tok.value, pos + 1
++    if tok.kind != "WORD":
++        raise ValueError("missing value")
++    return tok.value, pos + 1
++
++
++def _read_number(tokens, pos):
++    """Read NUMBER possibly separated from the op by whitespace."""
++    if pos >= len(tokens):
++        raise ValueError("missing value")
++    tok = tokens[pos]
++    if tok.kind == "WORD":
++        value = tok.value
++        pos += 1
++    elif tok.kind == "STRING":
++        value = tok.value
++        pos += 1
++    else:
++        raise ValueError("missing value")
++    # allow whitespace between sign and magnitude by re-joining next sign term
++    if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
++        value += tokens[pos].value
++        pos += 1
++    return value, pos
++
++
++def _read_cmp_operand(tokens, pos):
++    """Read an operand that may directly follow the op in the same word."""
++    if pos >= len(tokens):
++        raise ValueError("missing value")
++    tok = tokens[pos]
++    if tok.kind in ("LPAREN", "RPAREN"):
++        raise ValueError("missing value")
++    if tok.kind == "STRING":
++        return tok.value, pos + 1
++    value = tok.value
+     pos += 1
+-    if ":" in word:
+-        return word, pos
+-    if word.upper() in ("AND", "OR", "NOT"):
+-        return None, pos
+-    chunks = [word]
+-    while pos < len(tokens):
+-        k, v = tokens[pos].kind, tokens[pos].value
+-        if k in ("LPAREN", "RPAREN", "OP"):
+-            break
+-        if k == "STRING":
+-            chunks.append(v)
+-        else:
+-            if v.upper() in ("AND", "OR", "NOT"):
+-                break
+-            if ":" in v:
+-                break
+-            chunks.append(v)
++    if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
++        value += tokens[pos].value
+         pos += 1
+-    return "".join(chunks), pos
++    return value, pos
+ 
+ 
+-def _parse_field(term):
+-    if ":" not in term:
+-        raise ValueError(f"invalid term {term!r}")
+-    field, value = term.split(":", 1)
++def _parse_field(word, tokens, pos, rest):
++    field = word
++    value = rest
+     if field in FIELDS:
+         if value == "":
+-            raise ValueError(f"missing value for {field}")
+-        return ("field", field, value)
++            value, pos = _read_value(tokens, pos)
++        return ("field", field, value), pos
+     if field in CMP_FIELDS:
+         m = re.match(r"^(<=|>=|<|>|=)(.*)$", value, re.DOTALL)
+         if not m:
+-            raise ValueError(f"missing or bad operator in {term!r}")
++            raise ValueError(f"missing or bad operator in {field!r} term")
+         op, raw = m.group(1), m.group(2)
+         raw = raw.strip()
+         if raw == "":
+-            raise ValueError(f"missing value for {field}")
++            raw, pos = _read_cmp_operand(tokens, pos)
+         if field == "amount":
+             if not _NUMBER_RE.match(raw):
+                 raise ValueError(f"invalid number {raw!r}")
+             try:
+                 num = Decimal(raw)
+             except InvalidOperation:
+                 raise ValueError(f"invalid number {raw!r}")
+-            return ("amount", op, num)
++            return ("amount", op, num), pos
+         if not _DATE_RE.match(raw):
+             raise ValueError(f"invalid date {raw!r}")
+         try:
+             d = date.fromisoformat(raw)
+         except ValueError:
+             raise ValueError(f"invalid date {raw!r}")
+-        return ("date", op, d)
++        return ("date", op, d), pos
+     raise ValueError(f"unknown field {field!r}")
+ 
+ 
+ _CMP = {
+
+[0m
+[0m$ [0mgrep -n "CMP_FIELDS\|def _parse_field\|_read_value\|_read_number" ledger/search.py
+17:CMP_FIELDS = ("amount", "date")
+103:def _read_value(tokens, pos):
+113:def _read_number(tokens, pos):
+150:def _parse_field(word, tokens, pos, rest):
+155:            value, pos = _read_value(tokens, pos)
+157:    if field in CMP_FIELDS:
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -253,13 +253,26 @@
+             if self.peek() is None or self.peek().kind != "RPAREN":
+                 raise ValueError("unbalanced parentheses")
+             self.advance()
+             return node
+-        term, pos = _tokenize_field_term(self.tokens, self.pos)
+-        if term is None:
+-            raise ValueError(f"unexpected token {tok.value!r}")
+-        self.pos = pos
+-        return _parse_field(term)
++        if tok.kind == "OP":
++            raise ValueError(f"unexpected operator {tok.value!r}")
++        if tok.kind == "STRING":
++            raise ValueError(f"unexpected string {tok.value!r}")
++        word = tok.value
++        if word.upper() in ("AND", "OR", "NOT"):
++            raise ValueError(f"unexpected keyword {word!r}")
++        split = _split_field(word)
++        if split is None:
++            nxt = self.peek_at(1)
++            if word in CMP_FIELDS and nxt is not None and nxt.kind == "OP":
++                self.pos += 2
++                node, self.pos = _parse_field_op(word, nxt.value, self.tokens, self.pos)
++                return node
++            raise ValueError(f"invalid term {word!r}")
++        self.pos += 1
++        node, self.pos = _parse_field(split[0], self.tokens, self.pos, split[1])
++        return node
+ 
+ 
+ def _match(node, tx):
+     kind = node[0]
+
+[0m
+[0m$ [0mgrep -n "def peek\|def _parse_field\|def parse_primary" ledger/search.py
+150:def _parse_field(word, tokens, pos, rest):
+197:    def peek(self):
+243:    def parse_primary(self):
+[0m
+[0m$ [0msed -n 195,270p ledger/search.py
+self.pos = 0
+
+    def peek(self):
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
+
+    def advance(self):
+        tok = self.tokens[self.pos]
+        self.pos += 1
+        return tok
+
+    def is_keyword(self, tok, word):
+        return tok is not None and tok.kind == "WORD" and tok.value.upper() == word
+
+    def parse(self):
+        if not self.tokens:
+            return ("true",)
+        node = self.parse_or()
+        if self.pos != len(self.tokens):
+            raise ValueError("unexpected token")
+        return node
+
+    def parse_or(self):
+        node = self.parse_and()
+        while self.is_keyword(self.peek(), "OR"):
+            self.advance()
+            node = ("or", node, self.parse_and())
+        return node
+
+    def parse_and(self):
+        node = self.parse_unary()
+        while True:
+            tok = self.peek()
+            if tok is None or tok.kind == "RPAREN" or self.is_keyword(tok, "OR"):
+                return node
+            if self.is_keyword(tok, "AND"):
+                self.advance()
+                node = ("and", node, self.parse_unary())
+                continue
+            # implicit AND
+            node = ("and", node, self.parse_unary())
+
+    def parse_unary(self):
+        tok = self.peek()
+        if self.is_keyword(tok, "NOT"):
+            self.advance()
+            return ("not", self.parse_unary())
+        return self.parse_primary()
+
+    def parse_primary(self):
+        tok = self.peek()
+        if tok is None or tok.kind == "RPAREN" or self.is_keyword(tok, "AND") \
+                or self.is_keyword(tok, "OR"):
+            raise ValueError("missing operand")
+        if tok.kind == "LPAREN":
+            self.advance()
+            if self.peek() is not None and self.peek().kind == "RPAREN":
+                raise ValueError("empty group")
+            node = self.parse_or()
+            if self.peek() is None or self.peek().kind != "RPAREN":
+                raise ValueError("unbalanced parentheses")
+            self.advance()
+            return node
+        if tok.kind == "OP":
+            raise ValueError(f"unexpected operator {tok.value!r}")
+        if tok.kind == "STRING":
+            raise ValueError(f"unexpected string {tok.value!r}")
+        word = tok.value
+        if word.upper() in ("AND", "OR", "NOT"):
+            raise ValueError(f"unexpected keyword {word!r}")
+        split = _split_field(word)
+        if split is None:
+            nxt = self.peek_at(1)
+            if word in CMP_FIELDS and nxt is not None and nxt.kind == "OP":
+                self.pos += 2
+                node, self.pos = _parse_field_op(word, nxt.value, self.tokens, self.pos)
+                return node
+[0m
+[0m$ [0msed -n 270,290p ledger/search.py
+return node
+            raise ValueError(f"invalid term {word!r}")
+        self.pos += 1
+        node, self.pos = _parse_field(split[0], self.tokens, self.pos, split[1])
+        return node
+
+
+def _match(node, tx):
+    kind = node[0]
+    if kind == "true":
+        return True
+    if kind == "and":
+        return _match(node[1], tx) and _match(node[2], tx)
+    if kind == "or":
+        return _match(node[1], tx) or _match(node[2], tx)
+    if kind == "not":
+        return not _match(node[1], tx)
+    if kind == "field":
+        _, field, value = node
+        value = value.lower()
+        if field == "category":
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -196,8 +196,12 @@
+ 
+ def peek(self):
+     return self.tokens[self.pos] if self.pos < len(self.tokens) else None
+ 
++def peek_at(self, offset):
++    idx = self.pos + offset
++    return self.tokens[idx] if idx < len(self.tokens) else None
++
+ def advance(self):
+     tok = self.tokens[self.pos]
+     self.pos += 1
+     return tok
+
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -269,9 +269,9 @@
+ if split is None:
+     nxt = self.peek_at(1)
+     if word in CMP_FIELDS and nxt is not None and nxt.kind == "OP":
+         self.pos += 2
+-        node, self.pos = _parse_field_op(word, nxt.value, self.tokens, self.pos)
++        node, self.pos = _parse_field(word, self.tokens, self.pos, nxt.value)
+         return node
+     raise ValueError(f"invalid term {word!r}")
+ self.pos += 1
+ node, self.pos = _parse_field(split[0], self.tokens, self.pos, split[1])
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Transaction, Money
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),'Say "hi" \\ (x)',Money("-10"),"Food",("Work",)),
+]
+l=Ledger(txs)
+def d(q):
+    r=[t.description for t in l.search(q)]
+    print(repr(q),'->',r)
+for q in ['','   ','category:food','CATEGORY:FOOD tag:work','desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5',
+          'amount >= 10.50','amount=0','amount < -20','amount<-20','date>=2026-01-01','date<2026-02-01','date >= 2026-01-01',
+          'NOT tag:work','desc:"say \\"hi\\" \\\\ (x)"','(category:food)','category:food AND','OR tag:x','NOT','foo:bar','()','(category:food','category:food)','amount<-x','date>=2026-13-01','desc:"abc','amount<','amount = -4.5','desc:coffee','desc:COFFEE','tag:FIXED','amount<=-4.5']:
+    try: d(q)
+    except ValueError as e: print(repr(q),'ValueError:',e)
+EOF
+'' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'   ' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'category:food' -> ['Coffee Shop', 'Say "hi" \\ (x)']
+'CATEGORY:FOOD tag:work' ValueError: unknown field 'CATEGORY'
+'desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5' ValueError: invalid term 'amount<-5'
+'amount >= 10.50' -> ['Salary']
+'amount=0' ValueError: invalid term 'amount=0'
+'amount < -20' -> ['Rent']
+'amount<-20' ValueError: invalid term 'amount<-20'
+'date>=2026-01-01' ValueError: invalid term 'date>=2026-01-01'
+'date<2026-02-01' ValueError: invalid term 'date<2026-02-01'
+'date >= 2026-01-01' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'NOT tag:work' -> ['Coffee Shop', 'Salary', 'Rent']
+'desc:"say \\"hi\\" \\\\ (x)"' -> ['Say "hi" \\ (x)']
+'(category:food)' -> ['Coffee Shop', 'Say "hi" \\ (x)']
+'category:food AND' ValueError: missing operand
+'OR tag:x' ValueError: missing operand
+'NOT' ValueError: missing operand
+'foo:bar' ValueError: unknown field 'foo'
+'()' ValueError: empty group
+'(category:food' ValueError: unbalanced parentheses
+'category:food)' ValueError: unexpected token
+'amount<-x' ValueError: invalid term 'amount<-x'
+'date>=2026-13-01' ValueError: invalid term 'date>=2026-13-01'
+'desc:"abc' ValueError: unterminated quote
+'amount<' ValueError: invalid term 'amount<'
+'amount = -4.5' -> ['Coffee Shop']
+'desc:coffee' -> ['Coffee Shop']
+'desc:COFFEE' -> ['Coffee Shop']
+'tag:FIXED' -> ['Rent']
+'amount<=-4.5' ValueError: invalid term 'amount<=-4.5'
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -91,16 +91,29 @@
+         tokens.append(_Token("WORD", word))
+     return tokens
+ 
+ 
++_OP_SPLIT_RE = re.compile(r"^(<=|>=|<|>|=)")
++
++
+ def _split_field(word):
+-    """Split a bare word at the first ':' -> (field, remainder) or None."""
+-    if ":" not in word:
+-        return None
+-    field, rest = word.split(":", 1)
+-    return field, rest
++    """Split a bare word into (field, remainder) or None.
+ 
++    Handles both ``field:value`` (category/tag/desc) and ``field OP value``
++    where the operator follows the field name directly (amount/date).
++    """
++    if ":" in word:
++        field, rest = word.split(":", 1)
++        return field, rest
++    for field in CMP_FIELDS:
++        if word.startswith(field):
++            rest = word[len(field):]
++            m = _OP_SPLIT_RE.match(rest)
++            if m:
++                return field, rest
++    return None
+ 
++
+ def _read_value(tokens, pos):
+     """Read a VALUE starting at ``pos``: a bare word or a quoted string."""
+     tok = tokens[pos]
+     if tok.kind == "STRING":
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Transaction, Money
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),'Say "hi" \\ (x)',Money("-10"),"Food",("Work",)),
+]
+l=Ledger(txs)
+def d(q):
+    r=[t.description for t in l.search(q)]
+    print(repr(q),'->',r)
+for q in ['amount=0','amount<-20','date>=2026-01-01','date<2026-02-01','amount<=-4.5','desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5','amount<-x','date>=2026-13-01','amount<','foo:bar','amount = 0','amount<- 20','amount< -20','category:food AND','amount+2']:
+    try: d(q)
+    except ValueError as e: print(repr(q),'ValueError:',e)
+EOF
+python -m pytest -q
+'amount=0' -> []
+'amount<-20' -> ['Rent']
+'date>=2026-01-01' -> ['Coffee Shop', 'Salary', 'Rent', 'Say "hi" \\ (x)']
+'date<2026-02-01' -> ['Coffee Shop', 'Salary']
+'amount<=-4.5' -> ['Coffee Shop', 'Rent', 'Say "hi" \\ (x)']
+'desc:"coffee shop" or (category:food AND NOT tag:work) amount<-5' -> ['Coffee Shop']
+'amount<-x' ValueError: invalid number '-x'
+'date>=2026-13-01' ValueError: invalid date '2026-13-01'
+'amount<' ValueError: missing value
+'foo:bar' ValueError: unknown field 'foo'
+'amount = 0' -> []
+'amount<- 20' ValueError: invalid number '-'
+'amount< -20' -> ['Rent']
+'category:food AND' ValueError: missing operand
+'amount+2' ValueError: invalid term 'amount+2'
+....                                                                     [100%]
+4 passed in 1.94s
+[0m
+[0m$ [0mgrep -n "_read_number\|_read_value" ledger/search.py
+116:def _read_value(tokens, pos):
+126:def _read_number(tokens, pos):
+168:            value, pos = _read_value(tokens, pos)
+[0m
+[0m$ [0msed -n 124,140p ledger/search.py
+def _read_number(tokens, pos):
+    """Read NUMBER possibly separated from the op by whitespace."""
+    if pos >= len(tokens):
+        raise ValueError("missing value")
+    tok = tokens[pos]
+    if tok.kind == "WORD":
+        value = tok.value
+        pos += 1
+    elif tok.kind == "STRING":
+        value = tok.value
+        pos += 1
+    else:
+        raise ValueError("missing value")
+    # allow whitespace between sign and magnitude by re-joining next sign term
+    if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
+[0m
+[0m$ [0msed -n 140,152p ledger/search.py
+if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
+        value += tokens[pos].value
+        pos += 1
+    return value, pos
+
+
+def _read_cmp_operand(tokens, pos):
+    """Read an operand that may directly follow the op in the same word."""
+    if pos >= len(tokens):
+        raise ValueError("missing value")
+    tok = tokens[pos]
+    if tok.kind in ("LPAREN", "RPAREN"):
+        raise ValueError("missing value")
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r1--20261109-002949-738696/ws/ledger/search.py
+@@ -122,28 +122,8 @@
+         raise ValueError("missing value")
+     return tok.value, pos + 1
+ 
+ 
+-def _read_number(tokens, pos):
+-    """Read NUMBER possibly separated from the op by whitespace."""
+-    if pos >= len(tokens):
+-        raise ValueError("missing value")
+-    tok = tokens[pos]
+-    if tok.kind == "WORD":
+-        value = tok.value
+-        pos += 1
+-    elif tok.kind == "STRING":
+-        value = tok.value
+-        pos += 1
+-    else:
+-        raise ValueError("missing value")
+-    # allow whitespace between sign and magnitude by re-joining next sign term
+-    if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
+-        value += tokens[pos].value
+-        pos += 1
+-    return value, pos
+-
+-
+ def _read_cmp_operand(tokens, pos):
+     """Read an operand that may directly follow the op in the same word."""
+     if pos >= len(tokens):
+         raise ValueError("missing value")
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "from ledger import Ledger; print(Ledger().search(''))"
+....                                                                     [100%]
+4 passed in 0.17s
+[]
+[0m

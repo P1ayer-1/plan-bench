@@ -1,0 +1,1 @@
+Optimized `dedupe()` with a `set` for O(1) membership (ledger/ledger.py:41). 200k transactions now dedupe in ~0.14s; all tests pass.

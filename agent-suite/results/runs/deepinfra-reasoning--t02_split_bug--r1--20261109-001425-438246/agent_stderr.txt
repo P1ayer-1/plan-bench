@@ -1,0 +1,116 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && git status
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:14 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:14 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 671 Nov  9 00:14 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+On branch master
+nothing to commit, working tree clean
+[0m
+[0m✱ [0mGrep "def split|class Money"[90m 2 matches[0m
+[0m
+[0m$ [0mls -R ledger tests && cat README.md
+ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+tests:
+test_basic.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
+@@ -37,11 +37,22 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts, summing exactly to this amount."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
+ 
++    total_cents = int(self.amount / CENT)
++    base_cents = int(total_cents / n)
++    remainder = total_cents - base_cents * n
++    step = 1 if remainder >= 0 else -1
++
++    parts = []
++    for i in range(n):
++        cents = base_cents + (step if i < abs(remainder) else 0)
++        parts.append(Money(Decimal(cents) * CENT, self.currency))
++    return parts
++
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t02_split_bug--r1--20261109-001425-438246/ws/ledger/money.py
+@@ -42,9 +42,10 @@
+ if n <= 0:
+     raise ValueError("n must be a positive integer")
+ 
+ total_cents = int(self.amount / CENT)
+-base_cents = int(total_cents / n)
++sign = 1 if total_cents >= 0 else -1
++base_cents = sign * (abs(total_cents) // n)
+ remainder = total_cents - base_cents * n
+ step = 1 if remainder >= 0 else -1
+ 
+ parts = []
+
+[0m
+[0m$ [0mpython - <<'PY'
+from ledger import Money
+for amt, n in [("10.00",3),("-10.00",3),("10.00",4),("0.05",3),("-0.05",3),("0.01",3),("-0.01",3),("10.00",1)]:
+    parts = Money(amt).split(n)
+    print(amt, n, [str(p.amount) for p in parts], sum(p.amount for p in parts))
+for n in [0,-1]:
+    try:
+        Money("1").split(n)
+    except ValueError as e:
+        print("ValueError", n, e)
+PY
+10.00 3 ['3.34', '3.33', '3.33'] 10.00
+-10.00 3 ['-3.34', '-3.33', '-3.33'] -10.00
+10.00 4 ['2.50', '2.50', '2.50', '2.50'] 10.00
+0.05 3 ['0.02', '0.02', '0.01'] 0.05
+-0.05 3 ['-0.02', '-0.02', '-0.01'] -0.05
+0.01 3 ['0.01', '0.00', '0.00'] 0.01
+-0.01 3 ['-0.01', '0.00', '0.00'] -0.01
+10.00 1 ['10.00'] 10.00
+ValueError 0 n must be a positive integer
+ValueError -1 n must be a positive integer
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 5.73s
+[0m

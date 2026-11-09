@@ -1,0 +1,60 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m✱ [0mGlob "**/*.py"[90m 7 matches[0m
+[0m
+[0m$ [0mls -la && git status && git log --oneline -5
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:24 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:24 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  9 01:24 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+On branch master
+nothing to commit, working tree clean
+b9925f2 base
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t08_dedupe_perf--r4--20261109-012440-380714/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t08_dedupe_perf--r4--20261109-012440-380714/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t08_dedupe_perf--r4--20261109-012440-380714/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Ledger, Money, Transaction
+random.seed(0)
+txs=[]
+for i in range(200000):
+    txs.append(Transaction(date(2026,1,1)+timedelta(days=random.randrange(365)), f"desc {random.randrange(50000)}", Money(random.randrange(-10000,10000)/100), "cat", ()))
+l=Ledger(txs)
+start=time.perf_counter(); l.dedupe(); elapsed=time.perf_counter()-start
+print("elapsed", elapsed, "n", len(l.transactions))
+PY
+....                                                                     [100%]
+4 passed in 0.66s
+elapsed 0.8613102899998921 n 200000
+[0m

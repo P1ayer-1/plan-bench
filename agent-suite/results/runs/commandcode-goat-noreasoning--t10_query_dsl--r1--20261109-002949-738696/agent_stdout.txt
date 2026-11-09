@@ -1,0 +1,9 @@
+Now let me test with various queries.
+The word tokenizer splits `amount` at the OP because of the `_OPS` break. I need to handle field terms directly rather than generic word splitting. Let me rewrite the tokenizer/term handling.
+I need to handle whitespace-separated operands: `amount < -20` tokenizes as WORD("amount"), OP("<"), WORD("-20"), or WORD("amount"), WORD("<"), WORD("-20"). Let me handle in parse_primary.
+Let me add `peek_at` and `_parse_field_op`, and simplify.
+Words like `amount<-20` aren't split because `_split_field` only looks at `:`. I need to split at an OP when the prefix is a CMP field.
+All working. Let me clean up the now-unused `_read_number` function.
+Done. Implemented the search language in `ledger/search.py` and exposed it as `Ledger.search` in `ledger/ledger.py:31`.
+
+Key design: tokenizer handles bare words, quoted strings with escapes, parentheses, and operators; recursive-descent parser enforces `NOT > AND > OR` precedence with implicit AND; evaluator preserves original order. Malformed queries raise `ValueError`. All existing tests pass.

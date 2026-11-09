@@ -1,0 +1,205 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R . | head -50 && cat ledger/parser.py && cat tests/*.py 2>/dev/null | head -100
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m$ [0mcat ledger/ledger.py ledger/money.py; cat README.md
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m← [0mWrite ledger/parser.py
+Wrote file successfully.
+[0m
+[0m$ [0msed -i '1{/^import csv$/d}' ledger/parser.py && sed -n '1,5p' ledger/parser.py && python -m pytest -q
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+....                                                                     [100%]
+4 passed in 2.57s
+[0m
+[0m$ [0mpython -c "
+from ledger.parser import parse_csv
+t=parse_csv('date,description,amount,category,tags\r\n2026-03-02,\"Dinner, with friends\",-58.20,food,social\r\n2026-03-03,\"Say \"\"hi\"\"\",-1.00,food\r\n')
+print(t)
+try: parse_csv('date,description,amount,category,tags\r\n2026-03-02,a,b\r\n')
+except ValueError as e: print(e)
+"
+[Transaction(date=datetime.date(2026, 3, 2), description='Dinner, with friends', amount=Money('-58.20', 'USD'), category='food', tags=('social',)), Transaction(date=datetime.date(2026, 3, 3), description='Say "hi"', amount=Money('-1.00', 'USD'), category='food', tags=())]
+line 2: expected 4 or 5 fields, got 3
+[0m

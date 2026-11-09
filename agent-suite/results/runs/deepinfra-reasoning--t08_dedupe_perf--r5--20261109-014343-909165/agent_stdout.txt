@@ -1,0 +1,1 @@
+Done. `Ledger.dedupe()` now uses a `set` for O(n) lookups instead of rescanning the result list, deduping 200k transactions in ~0.14s. All 4 tests pass.

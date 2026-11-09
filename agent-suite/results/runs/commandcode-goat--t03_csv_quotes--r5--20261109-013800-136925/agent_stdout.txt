@@ -1,0 +1,1 @@
+Fixed `ledger/parser.py` to use the `csv` module, supporting quoted commas, escaped quotes (`""`), CRLF endings, and optional trailing tags. Invalid field counts raise `ValueError` with the 1-based line number. `python -m pytest -q`: 4 passed.

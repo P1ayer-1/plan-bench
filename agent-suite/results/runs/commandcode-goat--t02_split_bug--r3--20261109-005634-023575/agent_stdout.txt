@@ -1,0 +1,3 @@
+Fixed `Money.split` in `ledger/money.py:40`. It now distributes cents exactly, gives extra cents to the earliest parts, handles negatives symmetrically, and raises `ValueError` for `n <= 0`.
+
+`python -m pytest -q`: 4 passed.

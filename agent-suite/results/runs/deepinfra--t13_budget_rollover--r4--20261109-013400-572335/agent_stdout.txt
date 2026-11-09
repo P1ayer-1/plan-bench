@@ -1,0 +1,1 @@
+Done. Added `ledger/budget.py:budget_report` with month validation, per-month rows, and rollover (floored at zero, capped). Existing tests pass.

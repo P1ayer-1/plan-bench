@@ -1,0 +1,19 @@
+I left leftover junk in the tokenizer and the glued-comparison case is broken. Rewriting cleanly.
+Now add the method and test my implementation manually.
+Quoted values after `field:` need handling. I'll restructure tokenization so `field:` followed by a string token is combined.
+I'll rewrite the tokenizer's bare-word section.
+Now update the parser's `_make_term` to handle these tuples: `(field, value)`, `(field, op, rhs)`, `(None, word)`.
+Now `_split_comparison` should only apply when the field is known and remainder non-empty. Also add validation of unknown field at parse time (done). Rerun tests.
+The `amount` field name tokenizes to `(None, 'amount')` since it has no colon. I need to split comparison fields specially: if word == amount/date, emit `(field, None)` marker. Let me adjust.
+Now in `_make_term`, `second is None` can mean either `field:`+string or bare `amount`/`date` followed by op token. Need to distinguish. Let me update.
+Now after that block, `second` is None and we need to read op token then value. Let me view current code.
+Need to consume an operator token here.
+All good. `amount < -5` matches `-12.5` and `-1200`; `-4.5` not less than -5. Check the quoted-escape test: `desc:"coffee \"shop\""` returns Coffee Shop — wait it matched because description is "Coffee Shop" not `coffee "shop"`. That's wrong—it shouldn't match. Let me verify.
+Escapes work. Now write tests and finalize. Let me also check `amount` as a bare word error path acceptable; malformed queries raise ValueError as required. Add tests to suite.
+My test expectation is wrong: with implicit AND between OR-expr and amount<-5, result is (coffee OR (food AND NOT work)) AND amount<-5. Coffee is -4.5 not < -5, so only none. Correct result []. Let me fix the test to a clearer expectation.
+Interesting — got Coffee Shop. That means `amount<-5` parsed as glued but then... actually the OR produced Coffee, and implicit AND should exclude. Let me trace: implicit AND precedence is higher than OR, so `A OR B amount<-5` = A OR (B AND amount<-5). Correct per precedence! So Coffee matches A. My first expectation was right. Fix test back.
+Lunch is food and not work-tagged? Lunch has tag work and Lunch so it IS work, should be excluded. Let me check — `category:food AND NOT tag:work`: Lunch has "work" tag, so NOT tag:work false. Hmm but result includes Lunch. Wait amount<-5 includes Lunch (-12.5). So q2 OR amount<-5 includes Lunch. Right, my expectation wrong again. Fix to include Lunch.
+All tests pass. Let me review the final search.py for the leftover dead `_split_comparison` edge and `_FIELDS` unknown handling when glued: `foo<-5` won't split (only amount/date). Good. Also `amount<` with empty rhs handled.
+
+One issue: `parse_or` for input `OR tag:x` — leading OR is caught by parse_primary "unexpected token". Good. Verify git diff summary and clean up unused code.
+Implemented `Ledger.search(query: str)` in `ledger/ledger.py:37`, backed by a new tokenizer/recursive-descent parser in `ledger/search.py` supporting all fields, operators, quoting/escapes, implicit `AND`, precedence, and `ValueError` on malformed input. Added `tests/test_search.py`. All 25 tests pass.

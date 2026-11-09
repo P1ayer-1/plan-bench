@@ -1,0 +1,2 @@
+Now update tests and CLI.
+All 8 tests pass. `money.py` raises `CurrencyMismatch` on add/sub/compare across currencies, `balance()` returns a currency map, and `monthly_summary` uses `(category, currency)` keys only for mixed-currency months. CLI output already works unchanged since it just prints keys.

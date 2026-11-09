@@ -1,0 +1,273 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..0564342 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import compile_query
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,11 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching a search query, preserving order."""
++        predicate = compile_query(query)
++        return [tx for tx in self.transactions if predicate(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..b5095e1
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,243 @@
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++_AMOUNT_RE = re.compile(r"-?\d+(?:\.\d+)?")
++_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
++
++
++def compile_query(query):
++    """Compile a search query into a predicate over Transaction objects."""
++    return _Parser(query).parse()
++
++
++class _Parser:
++    def __init__(self, text):
++        if not isinstance(text, str):
++            raise ValueError("query must be a string")
++        self.s = text
++        self.n = len(text)
++        self.i = 0
++
++    def parse(self):
++        self._skip_ws()
++        if self.i >= self.n:
++            return lambda tx: True
++        pred = self._parse_or()
++        self._skip_ws()
++        if self.i != self.n:
++            raise ValueError(f"unexpected input at {self.i}: {self.s[self.i:]!r}")
++        return pred
++
++    def _skip_ws(self):
++        while self.i < self.n and self.s[self.i].isspace():
++            self.i += 1
++
++    def _at_keyword(self, keyword):
++        end = self.i + len(keyword)
++        if self.s[self.i:end].upper() != keyword:
++            return False
++        if end < self.n and (self.s[end].isalnum() or self.s[end] == "_"):
++            return False
++        return True
++
++    def _parse_or(self):
++        left = self._parse_and()
++        while True:
++            self._skip_ws()
++            if not self._at_keyword("OR"):
++                break
++            self.i += 2
++            right = self._parse_and()
++            left = (lambda l, r: lambda tx: l(tx) or r(tx))(left, right)
++        return left
++
++    def _parse_and(self):
++        left = self._parse_not()
++        while True:
++            self._skip_ws()
++            if self.i >= self.n or self.s[self.i] == ")":
++                break
++            if self._at_keyword("OR"):
++                break
++            if self._at_keyword("AND"):
++                self.i += 3
++                right = self._parse_not()
++            else:
++                right = self._parse_not()
++            left = (lambda l, r: lambda tx: l(tx) and r(tx))(left, right)
++        return left
++
++    def _parse_not(self):
++        self._skip_ws()
++        if self.i >= self.n or self.s[self.i] == ")":
++            raise ValueError("missing operand")
++        if self._at_keyword("NOT"):
++            self.i += 3
++            inner = self._parse_not()
++            return lambda tx: not inner(tx)
++        return self._parse_primary()
++
++    def _parse_primary(self):
++        self._skip_ws()
++        if self.i >= self.n:
++            raise ValueError("missing operand")
++        if self.s[self.i] == "(":
++            self.i += 1
++            self._skip_ws()
++            if self.i < self.n and self.s[self.i] == ")":
++                raise ValueError("empty group")
++            inner = self._parse_or()
++            self._skip_ws()
++            if self.i >= self.n or self.s[self.i] != ")":
++                raise ValueError("unbalanced parentheses")
++            self.i += 1
++            return inner
++        if self.s[self.i] == ")":
++            raise ValueError("unexpected ')'")
++        return self._parse_term()
++
++    def _matches_field(self, name):
++        if not self.s.startswith(name, self.i):
++            return False
++        end = self.i + len(name)
++        if end < self.n and (self.s[end].isalnum() or self.s[end] == "_"):
++            return False
++        return True
++
++    def _parse_term(self):
++        self._skip_ws()
++        start = self.i
++        if self.s.startswith("category:", start):
++            self.i = start + len("category:")
++            return self._parse_value_term("category")
++        if self.s.startswith("tag:", start):
++            self.i = start + len("tag:")
++            return self._parse_value_term("tag")
++        if self.s.startswith("desc:", start):
++            self.i = start + len("desc:")
++            return self._parse_value_term("desc")
++        if self._matches_field("amount"):
++            self.i = start + len("amount")
++            return self._parse_compare_term("amount")
++        if self._matches_field("date"):
++            self.i = start + len("date")
++            return self._parse_compare_term("date")
++        raise ValueError(f"unknown field or malformed term at {start}: {self.s[start:]!r}")
++
++    def _parse_value_term(self, field):
++        if self.i < self.n and self.s[self.i] == '"':
++            value = self._parse_quoted()
++        else:
++            start = self.i
++            while self.i < self.n:
++                c = self.s[self.i]
++                if c.isspace() or c in '()"':
++                    break
++                self.i += 1
++            value = self.s[start:self.i]
++            if not value:
++                raise ValueError(f"missing value for {field}")
++            if self.i < self.n and self.s[self.i] == '"':
++                raise ValueError(f"malformed value for {field}")
++
++        if field == "category":
++            lowered = value.lower()
++            return lambda tx: tx.category.lower() == lowered
++        if field == "tag":
++            lowered = value.lower()
++            return lambda tx: any(tag.lower() == lowered for tag in tx.tags)
++        lowered = value.lower()
++        return lambda tx: lowered in tx.description.lower()
++
++    def _parse_compare_term(self, field):
++        self._skip_ws()
++        op = self._parse_op()
++        self._skip_ws()
++
++        if field == "amount":
++            match = _AMOUNT_RE.match(self.s, self.i)
++            if not match:
++                raise ValueError(f"invalid number at {self.i}")
++            text = match.group(0)
++            end = match.end()
++            self._check_boundary(end)
++            self.i = end
++            try:
++                number = Decimal(text)
++            except InvalidOperation:
++                raise ValueError(f"invalid number: {text!r}")
++            return _amount_predicate(op, number)
++
++        match = _DATE_RE.match(self.s, self.i)
++        if not match:
++            raise ValueError(f"invalid date at {self.i}")
++        text = match.group(0)
++        end = match.end()
++        self._check_boundary(end)
++        self.i = end
++        try:
++            value = date.fromisoformat(text)
++        except ValueError:
++            raise ValueError(f"invalid date: {text!r}")
++        return _date_predicate(op, value)
++
++    def _parse_op(self):
++        if self.s.startswith("<=", self.i):
++            self.i += 2
++            return "<="
++        if self.s.startswith(">=", self.i):
++            self.i += 2
++            return ">="
++        if self.i < self.n and self.s[self.i] in "<>=":
++            op = self.s[self.i]
++            self.i += 1
++            return op
++        raise ValueError(f"invalid or missing operator at {self.i}")
++
++    def _check_boundary(self, index):
++        if index < self.n and not (self.s[index].isspace() or self.s[index] in "()"):
++            raise ValueError(f"invalid value ending at {index}: {self.s[index]!r}")
++
++    def _parse_quoted(self):
++        self.i += 1
++        chars = []
++        while self.i < self.n:
++            c = self.s[self.i]
++            if c == "\\":
++                if self.i + 1 >= self.n:
++                    raise ValueError("unterminated quoted string")
++                nxt = self.s[self.i + 1]
++                if nxt in ('"', "\\"):
++                    chars.append(nxt)
++                    self.i += 2
++                else:
++                    chars.append(c)
++                    self.i += 1
++            elif c == '"':
++                self.i += 1
++                return "".join(chars)
++            else:
++                chars.append(c)
++                self.i += 1
++        raise ValueError("unterminated quoted string")
++
++
++def _apply(op, left, right):
++    if op == "<":
++        return left < right
++    if op == "<=":
++        return left <= right
++    if op == ">":
++        return left > right
++    if op == ">=":
++        return left >= right
++    return left == right
++
++
++def _amount_predicate(op, number):
++    return lambda tx: _apply(op, tx.amount.amount, number)
++
++
++def _date_predicate(op, value):
++    return lambda tx: _apply(op, tx.date, value)

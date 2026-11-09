@@ -1,0 +1,107 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..c327aeb 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -38,6 +38,13 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def add_recurring(self, rule, window_start, window_end):
++        from .recurring import expand
++
++        txs = expand(rule, window_start, window_end)
++        self.transactions.extend(txs)
++        return len(txs)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""
+diff --git a/ledger/recurring.py b/ledger/recurring.py
+new file mode 100644
+index 0000000..21eea6f
+--- /dev/null
++++ b/ledger/recurring.py
+@@ -0,0 +1,83 @@
++import calendar
++from dataclasses import dataclass
++from datetime import date, timedelta
++
++from .ledger import Transaction
++from .money import Money
++
++_FREQS = ("weekly", "monthly", "yearly")
++
++
++@dataclass(frozen=True)
++class Recurrence:
++    description: str
++    amount: Money
++    category: str
++    start: date
++    freq: str
++    interval: int = 1
++    count: int | None = None
++    until: date | None = None
++    skip: tuple = ()
++
++
++def _days_in_month(year, month):
++    return calendar.monthrange(year, month)[1]
++
++
++def _add_months(year, month, n):
++    total = (year * 12 + (month - 1)) + n
++    return total // 12, total % 12 + 1
++
++
++def _nth_occurrence(rule, k):
++    if rule.freq == "weekly":
++        return rule.start + timedelta(days=7 * rule.interval * k)
++    if rule.freq == "monthly":
++        year, month = _add_months(rule.start.year, rule.start.month, rule.interval * k)
++        day = min(rule.start.day, _days_in_month(year, month))
++        return date(year, month, day)
++    year = rule.start.year + rule.interval * k
++    day = min(rule.start.day, _days_in_month(year, rule.start.month))
++    return date(year, rule.start.month, day)
++
++
++def _validate(rule):
++    if rule.freq not in _FREQS:
++        raise ValueError(f"invalid freq: {rule.freq!r}")
++    if rule.interval < 1:
++        raise ValueError("interval must be >= 1")
++    if rule.count is not None and rule.count < 0:
++        raise ValueError("count must be non-negative")
++
++
++def occurrences(rule, window_start, window_end):
++    _validate(rule)
++    skip = set(rule.skip)
++    out = []
++    k = 0
++    while True:
++        if rule.count is not None and k >= rule.count:
++            break
++        day = _nth_occurrence(rule, k)
++        if rule.until is not None and day > rule.until:
++            break
++        if day > window_end:
++            break
++        if day >= window_start and day not in skip:
++            out.append(day)
++        k += 1
++    return out
++
++
++def expand(rule, window_start, window_end):
++    return [
++        Transaction(
++            date=day,
++            description=rule.description,
++            amount=rule.amount,
++            category=rule.category,
++            tags=("recurring",),
++        )
++        for day in occurrences(rule, window_start, window_end)
++    ]

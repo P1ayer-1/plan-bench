@@ -1,0 +1,19 @@
+ tags=()), ...ransaction(date=datetime.date(2026, 3, 2), description='x', amount=Money('-58.00', 'USD'), category='c', tags=()), ...]
+max_days = 3
+
+    def check(res, L, B, max_days=3):
+        used_l, used_b = set(), set()
+        for l, b in res.matched:
+>           assert l.amount == b.amount and abs((l.date - b.date).days) <= max_days
+E           AssertionError: assert (Money('-54.00', 'USD') == Money('-54.00', 'USD') and 10 <= 3)
+E            +  where Money('-54.00', 'USD') = Transaction(date=datetime.date(2026, 7, 12), description='x', amount=Money('-54.00', 'USD'), category='c', tags=()).amount
+E            +  and   Money('-54.00', 'USD') = Transaction(date=datetime.date(2026, 7, 22), description='x', amount=Money('-54.00', 'USD'), category='c', tags=()).amount
+E            +  and   10 = abs(-10)
+E            +    where -10 = (datetime.date(2026, 7, 12) - datetime.date(2026, 7, 22)).days
+E            +      where datetime.date(2026, 7, 12) = Transaction(date=datetime.date(2026, 7, 12), description='x', amount=Money('-54.00', 'USD'), category='c', tags=()).date
+E            +      and   datetime.date(2026, 7, 22) = Transaction(date=datetime.date(2026, 7, 22), description='x', amount=Money('-54.00', 'USD'), category='c', tags=()).date
+
+_hidden_test_t11_reconcile.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED _hidden_test_t11_reconcile.py::test_performance - AssertionError: asse...
+1 failed, 7 passed in 0.21s

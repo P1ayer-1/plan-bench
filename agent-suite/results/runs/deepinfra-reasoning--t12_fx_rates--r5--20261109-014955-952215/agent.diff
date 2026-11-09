@@ -1,0 +1,163 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/__pycache__/__init__.cpython-311.pyc b/ledger/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000..df47d8c
+Binary files /dev/null and b/ledger/__pycache__/__init__.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/cli.cpython-311.pyc b/ledger/__pycache__/cli.cpython-311.pyc
+new file mode 100644
+index 0000000..e2198f3
+Binary files /dev/null and b/ledger/__pycache__/cli.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/fx.cpython-311.pyc b/ledger/__pycache__/fx.cpython-311.pyc
+new file mode 100644
+index 0000000..79fd12a
+Binary files /dev/null and b/ledger/__pycache__/fx.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/ledger.cpython-311.pyc b/ledger/__pycache__/ledger.cpython-311.pyc
+new file mode 100644
+index 0000000..d1df970
+Binary files /dev/null and b/ledger/__pycache__/ledger.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/money.cpython-311.pyc b/ledger/__pycache__/money.cpython-311.pyc
+new file mode 100644
+index 0000000..d2d9c54
+Binary files /dev/null and b/ledger/__pycache__/money.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/parser.cpython-311.pyc b/ledger/__pycache__/parser.cpython-311.pyc
+new file mode 100644
+index 0000000..cff8ae4
+Binary files /dev/null and b/ledger/__pycache__/parser.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/report.cpython-311.pyc b/ledger/__pycache__/report.cpython-311.pyc
+new file mode 100644
+index 0000000..3ae3572
+Binary files /dev/null and b/ledger/__pycache__/report.cpython-311.pyc differ
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..537af9e
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,92 @@
++from datetime import date
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++
++def _as_decimal(value):
++    if isinstance(value, Decimal):
++        return value
++    return Decimal(str(value))
++
++
++def _mul_exact(a, b):
++    """Multiply two Decimals without rounding away significant digits."""
++    a = _as_decimal(a)
++    b = _as_decimal(b)
++    precision = len(a.as_tuple().digits) + len(b.as_tuple().digits) + 2
++    with localcontext() as ctx:
++        ctx.prec = max(precision, 28)
++        return a * b
++
++
++def _add_exact(a, b):
++    """Add two Decimals without rounding away significant digits."""
++    a = _as_decimal(a)
++    b = _as_decimal(b)
++
++    def span(value):
++        exponent = value.as_tuple().exponent
++        digits = len(value.as_tuple().digits)
++        integer_digits = max(digits + exponent, 0)
++        fractional_digits = max(-exponent, 0)
++        return integer_digits, fractional_digits
++
++    a_int, a_frac = span(a)
++    b_int, b_frac = span(b)
++    with localcontext() as ctx:
++        ctx.prec = max(a_int, b_int) + max(a_frac, b_frac) + 2
++        return a + b
++
++
++class RateTable:
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on: date, base: str, quote: str, rate):
++        self._rates.setdefault((base, quote), {})[on] = _as_decimal(rate)
++
++    def _direct(self, base, quote, on):
++        """Look up a rate using rules 1-3 only (no USD chaining)."""
++        if base == quote:
++            return Decimal(1)
++
++        forward = self._rates.get((base, quote))
++        if forward:
++            applicable = [d for d in forward if d <= on]
++            if applicable:
++                return forward[max(applicable)]
++
++        reverse = self._rates.get((quote, base))
++        if reverse:
++            applicable = [d for d in reverse if d <= on]
++            if applicable:
++                with localcontext() as ctx:
++                    ctx.prec = max(ctx.prec, 28)
++                    return Decimal(1) / reverse[max(applicable)]
++
++        return None
++
++    def rate(self, base: str, quote: str, on: date) -> Decimal:
++        if base == quote:
++            return Decimal(1)
++
++        rate = self._direct(base, quote, on)
++        if rate is not None:
++            return rate
++
++        base_usd = self._direct(base, "USD", on)
++        usd_quote = self._direct("USD", quote, on)
++        if base_usd is not None and usd_quote is not None:
++            return _mul_exact(base_usd, usd_quote)
++
++        raise KeyError((base, quote, on))
++
++
++def _convert_amount(amount, from_currency, to, table, on):
++    return _mul_exact(amount, table.rate(from_currency, to, on))
++
++
++def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
++    amount = _convert_amount(money.amount, money.currency, to, table, on)
++    return Money(amount, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..6ffb440 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,5 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal
++from .fx import RateTable, _add_exact, _convert_amount
+ from .money import Money
+ 
+ 
+@@ -38,6 +40,16 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency: str, table: RateTable, on: date | None = None) -> Money:
++        total = Decimal(0)
++        for tx in self.transactions:
++            when = tx.date if on is None else on
++            converted = _convert_amount(
++                tx.amount.amount, tx.amount.currency, currency, table, when
++            )
++            total = _add_exact(total, converted)
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

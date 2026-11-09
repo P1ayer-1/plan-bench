@@ -1,0 +1,115 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..b3cf78f 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -48,3 +48,9 @@ class Ledger:
+                 result.append(tx)
+         self.transactions = result
+         return self
++
++    def add_recurring(self, rule, window_start, window_end):
++        from .recurring import expand
++        txs = expand(rule, window_start, window_end)
++        self.transactions.extend(txs)
++        return len(txs)
+diff --git a/ledger/recurring.py b/ledger/recurring.py
+new file mode 100644
+index 0000000..77684a6
+--- /dev/null
++++ b/ledger/recurring.py
+@@ -0,0 +1,95 @@
++import calendar
++from dataclasses import dataclass
++from datetime import date, timedelta
++
++from .ledger import Transaction
++from .money import Money
++
++FREQS = ("weekly", "monthly", "yearly")
++
++
++@dataclass(frozen=True)
++class Recurrence:
++    description: str
++    amount: Money
++    category: str
++    start: date
++    freq: str
++    interval: int = 1
++    count: int | None = None
++    until: date | None = None
++    skip: tuple = ()
++
++
++def _days_in_month(year, month):
++    return calendar.monthrange(year, month)[1]
++
++
++def _add_months(d, n):
++    total = d.year * 12 + (d.month - 1) + n
++    year, month = divmod(total, 12)
++    month += 1
++    day = min(d.day, _days_in_month(year, month))
++    return date(year, month, day)
++
++
++def _nth(rule, k):
++    if rule.freq == "weekly":
++        return rule.start + timedelta(days=7 * rule.interval * k)
++    if rule.freq == "monthly":
++        return _add_months(rule.start, rule.interval * k)
++    year = rule.start.year + rule.interval * k
++    day = min(rule.start.day, _days_in_month(year, rule.start.month))
++    return date(year, rule.start.month, day)
++
++
++def occurrences(rule, window_start, window_end):
++    if rule.freq not in FREQS:
++        raise ValueError(f"invalid freq: {rule.freq!r}")
++    if rule.interval < 1:
++        raise ValueError(f"invalid interval: {rule.interval!r}")
++    if rule.count is not None and rule.count < 0:
++        raise ValueError(f"invalid count: {rule.count!r}")
++
++    skip = set(rule.skip)
++    result = []
++    k = 0
++    while True:
++        if rule.count is not None and k >= rule.count:
++            break
++        d = _nth(rule, k)
++        k += 1
++        if rule.until is not None and d > rule.until:
++            break
++        if d > window_end:
++            break
++        if d < window_start:
++            continue
++        if d in skip:
++            continue
++        result.append(d)
++    return result
++
++
++def expand(rule, window_start, window_end):
++    return [
++        Transaction(
++            date=d,
++            description=rule.description,
++            amount=rule.amount,
++            category=rule.category,
++            tags=("recurring",),
++        )
++        for d in occurrences(rule, window_start, window_end)
++    ]
++
++
++def add_recurring(self, rule, window_start, window_end):
++    txs = expand(rule, window_start, window_end)
++    self.transactions.extend(txs)
++    return len(txs)
++
++
++from .ledger import Ledger as _Ledger
++
++_Ledger.add_recurring = add_recurring

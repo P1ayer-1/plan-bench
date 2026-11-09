@@ -1,0 +1,443 @@
+
+== deepinfra  (deepseek-ai/DeepSeek-V4.1-Flash-1017)
+  listed in /models : True
+  served model      : deepseek-ai/DeepSeek-V4.1-Flash-1017   provider: None
+  tool call         : [{'name': 'read_file', 'args': '{"path": "ledger/money.py"}'}]  ttft=0.91s
+  tool-call usage   : prompt=287 cached=256 completion=49 reasoning=0 cost=1.8196639999999997e-05
+  cache probe 1     : prompt=3688 cached=3584 completion=2 reasoning=0 cost=2.1316960000000003e-05  provider=None
+  cache probe 2     : prompt=3688 cached=3584 completion=2 reasoning=0 cost=2.1316960000000003e-05  provider=None
+  OK
+
+== deepinfra-reasoning  (deepseek-ai/DeepSeek-V4.1-Flash-1017)
+  listed in /models : True
+  served model      : deepseek-ai/DeepSeek-V4.1-Flash-1017   provider: None
+  tool call         : [{'name': 'read_file', 'args': '{"path": "ledger/money.py"}'}]  ttft=0.77s
+  tool-call usage   : prompt=312 cached=256 completion=43 reasoning=0 cost=1.888264e-05
+  cache probe 1     : prompt=3713 cached=3712 completion=16 reasoning=13 cost=1.571528e-05  provider=None
+  cache probe 2     : prompt=3713 cached=3712 completion=17 reasoning=14 cost=1.600928e-05  provider=None
+  OK
+
+== commandcode-goat  (deepseek/deepseek-v4.1-flash)
+  listed in /models : True
+  served model      : deepseek/deepseek-v4.1-flash   provider: None
+  tool call         : [{'name': 'read_file', 'args': '{"path": "ledger/money.py"}'}]  ttft=2.3s
+  tool-call usage   : prompt=312 cached=256 completion=42 reasoning=0 cost=None
+  cache probe 1     : prompt=3713 cached=3712 completion=14 reasoning=12 cost=None  provider=None
+  cache probe 2     : prompt=3713 cached=3712 completion=14 reasoning=12 cost=None  provider=None
+  OK
+
+== commandcode-goat-noreasoning  (deepseek/deepseek-v4.1-flash)
+  listed in /models : True
+  served model      : deepseek/deepseek-v4.1-flash   provider: None
+  tool call         : [{'name': 'read_file', 'args': '{"path": "ledger/money.py"}'}]  ttft=0.99s
+  tool-call usage   : prompt=287 cached=256 completion=48 reasoning=0 cost=None
+  cache probe 1     : prompt=3688 cached=3584 completion=1 reasoning=0 cost=None  provider=None
+  cache probe 2     : prompt=3688 cached=3584 completion=1 reasoning=0 cost=None  provider=None
+  OK
+
+NOTE: sides report different served model IDs: {'deepinfra': 'deepseek-ai/DeepSeek-V4.1-Flash-1017', 'deepinfra-reasoning': 'deepseek-ai/DeepSeek-V4.1-Flash-1017', 'commandcode-goat': 'deepseek/deepseek-v4.1-flash', 'commandcode-goat-noreasoning': 'deepseek/deepseek-v4.1-flash'}. Confirm they are the same snapshot.
+
+wrote /suite/results/preflight-20261109-001424.json
+proxy on http://127.0.0.1:8899  sides: deepinfra, deepinfra-reasoning, commandcode-goat, commandcode-goat-noreasoning
+tasks: 13  sides: deepinfra, deepinfra-reasoning, commandcode-goat, commandcode-goat-noreasoning  workers: 6  5 rounds
+  deepinfra-reasoning t01_tags               r1  PASS    228.0s  req=6
+  deepinfra          t02_split_bug          r1  PASS    228.2s  req=6
+  commandcode-goat   t01_tags               r1  PASS    229.8s  req=6
+  deepinfra          t01_tags               r1  PASS    241.4s  req=7
+  commandcode-goat-noreasoning t01_tags               r1  PASS    259.9s  req=7
+  deepinfra-reasoning t02_split_bug          r1  PASS    322.5s  req=8
+  deepinfra          t03_csv_quotes         r1  PASS     41.1s  req=7
+  commandcode-goat-noreasoning t03_csv_quotes         r1  PASS    122.1s  req=6
+  commandcode-goat   t02_split_bug          r1  PASS    166.3s  req=6
+  commandcode-goat-noreasoning t02_split_bug          r1  PASS    168.2s  req=7
+  commandcode-goat   t03_csv_quotes         r1  PASS    203.2s  req=8
+  deepinfra-reasoning t03_csv_quotes         r1  PASS    225.8s  req=10
+  deepinfra          t04_refactor_report    r1  PASS     48.0s  req=6
+  commandcode-goat   t04_refactor_report    r1  PASS     69.9s  req=6
+  deepinfra-reasoning t04_refactor_report    r1  PASS     94.7s  req=7
+  commandcode-goat-noreasoning t04_refactor_report    r1  PASS    106.4s  req=8
+  deepinfra-reasoning t05_write_tests        r1  PASS     85.0s  req=6
+  deepinfra          t05_write_tests        r1  PASS     61.7s  req=7
+  commandcode-goat   t06_currency           r1  PASS     59.7s  req=6
+  commandcode-goat-noreasoning t05_write_tests        r1  PASS     87.2s  req=8
+  deepinfra-reasoning t06_currency           r1  PASS    117.7s  req=7
+  commandcode-goat   t05_write_tests        r1  PASS     91.0s  req=6
+  commandcode-goat-noreasoning t06_currency           r1  PASS    124.9s  req=7
+  deepinfra          t06_currency           r1  PASS    112.0s  req=7
+  commandcode-goat-noreasoning t07_cli_balance        r1  PASS     82.9s  req=7
+  deepinfra          t07_cli_balance        r1  PASS     59.0s  req=6
+  deepinfra-reasoning t07_cli_balance        r1  PASS    102.9s  req=8
+  commandcode-goat   t07_cli_balance        r1  PASS     86.4s  req=7
+  deepinfra-reasoning t08_dedupe_perf        r1  PASS     47.7s  req=6
+  deepinfra          t08_dedupe_perf        r1  PASS     89.4s  req=7
+  commandcode-goat-noreasoning t08_dedupe_perf        r1  PASS     62.9s  req=7
+  commandcode-goat   t08_dedupe_perf        r1  PASS     63.7s  req=7
+  commandcode-goat-noreasoning t09_recurring          r1  PASS     47.4s  req=6
+  deepinfra-reasoning t09_recurring          r1  PASS     88.8s  req=6
+  deepinfra          t09_recurring          r1  PASS     60.2s  req=8
+  commandcode-goat   t09_recurring          r1  PASS    100.3s  req=6
+  deepinfra          t11_reconcile          r1  PASS    105.7s  req=9
+  deepinfra-reasoning t10_query_dsl          r1  PASS    210.3s  req=9
+  deepinfra          t10_query_dsl          r1  PASS    182.8s  req=17
+  commandcode-goat-noreasoning t11_reconcile          r1  PASS     47.9s  req=8
+  commandcode-goat   t10_query_dsl          r1  PASS    227.9s  req=11
+  commandcode-goat-noreasoning t10_query_dsl          r1  fail    266.4s  req=25
+  deepinfra          t12_fx_rates           r1  PASS     29.8s  req=6
+  deepinfra-reasoning t11_reconcile          r1  PASS    285.9s  req=22
+  commandcode-goat   t11_reconcile          r1  PASS    119.5s  req=8
+  deepinfra-reasoning t12_fx_rates           r1  PASS    130.6s  req=14
+  commandcode-goat-noreasoning t12_fx_rates           r1  fail     39.0s  req=7
+  deepinfra          t13_budget_rollover    r1  PASS     37.5s  req=5
+  commandcode-goat-noreasoning t13_budget_rollover    r1  PASS    118.1s  req=9
+  commandcode-goat   t13_budget_rollover    r1  PASS    116.8s  req=8
+  deepinfra-reasoning t13_budget_rollover    r1  PASS    150.8s  req=10
+  commandcode-goat   t12_fx_rates           r1  PASS    278.1s  req=17
+  deepinfra-reasoning t01_tags               r2  PASS    100.5s  req=7
+  commandcode-goat-noreasoning t01_tags               r2  PASS     73.5s  req=7
+  deepinfra          t01_tags               r2  PASS     93.8s  req=7
+  commandcode-goat   t01_tags               r2  PASS     61.7s  req=7
+  deepinfra-reasoning t02_split_bug          r2  PASS     67.4s  req=7
+  commandcode-goat   t02_split_bug          r2  PASS     87.8s  req=6
+  deepinfra          t02_split_bug          r2  PASS     65.5s  req=6
+  commandcode-goat-noreasoning t02_split_bug          r2  PASS     91.5s  req=7
+  deepinfra-reasoning t03_csv_quotes         r2  PASS     76.6s  req=6
+  commandcode-goat-noreasoning t03_csv_quotes         r2  PASS     65.6s  req=7
+  commandcode-goat   t03_csv_quotes         r2  fail     52.7s  req=6
+  deepinfra          t03_csv_quotes         r2  PASS     80.3s  req=7
+  deepinfra          t04_refactor_report    r2  PASS     61.4s  req=5
+  deepinfra-reasoning t04_refactor_report    r2  PASS     93.6s  req=8
+  commandcode-goat   t04_refactor_report    r2  PASS     51.5s  req=6
+  commandcode-goat-noreasoning t04_refactor_report    r2  PASS     84.5s  req=6
+  deepinfra-reasoning t05_write_tests        r2  PASS     94.3s  req=7
+  commandcode-goat   t05_write_tests        r2  PASS     73.8s  req=7
+  commandcode-goat-noreasoning t06_currency           r2  PASS     96.1s  req=6
+  commandcode-goat-noreasoning t05_write_tests        r2  PASS    114.6s  req=7
+  deepinfra          t05_write_tests        r2  PASS    118.8s  req=8
+  commandcode-goat   t06_currency           r2  PASS     77.6s  req=6
+  deepinfra-reasoning t07_cli_balance        r2  PASS     58.8s  req=6
+  deepinfra          t06_currency           r2  PASS     86.7s  req=8
+  deepinfra          t07_cli_balance        r2  PASS     66.6s  req=7
+  commandcode-goat-noreasoning t07_cli_balance        r2  PASS     55.7s  req=6
+  deepinfra-reasoning t06_currency           r2  PASS    237.4s  req=18
+  commandcode-goat   t07_cli_balance        r2  PASS     78.1s  req=6
+  deepinfra-reasoning t08_dedupe_perf        r2  PASS     71.2s  req=6
+  deepinfra          t08_dedupe_perf        r2  PASS     43.4s  req=7
+  commandcode-goat-noreasoning t08_dedupe_perf        r2  PASS     56.2s  req=7
+  commandcode-goat   t08_dedupe_perf        r2  PASS     88.7s  req=9
+  commandcode-goat-noreasoning t09_recurring          r2  PASS     76.7s  req=8
+  deepinfra-reasoning t09_recurring          r2  PASS    112.7s  req=12
+  deepinfra          t09_recurring          r2  fail     78.8s  req=8
+  commandcode-goat   t09_recurring          r2  PASS     91.9s  req=7
+  commandcode-goat-noreasoning t10_query_dsl          r2  PASS     87.8s  req=13
+  deepinfra          t10_query_dsl          r2  PASS    197.1s  req=26
+  commandcode-goat   t10_query_dsl          r2  PASS    162.7s  req=14
+  deepinfra-reasoning t10_query_dsl          r2  PASS    242.5s  req=15
+  deepinfra-reasoning t11_reconcile          r2  PASS    167.4s  req=12
+  commandcode-goat   t11_reconcile          r2  PASS    207.6s  req=17
+  commandcode-goat-noreasoning t11_reconcile          r2  PASS    172.1s  req=25
+  commandcode-goat-noreasoning t12_fx_rates           r2  PASS     87.4s  req=13
+  commandcode-goat   t12_fx_rates           r2  PASS     86.0s  req=11
+  deepinfra          t13_budget_rollover    r2  PASS     33.6s  req=7
+  deepinfra          t12_fx_rates           r2  PASS     81.0s  req=13
+  deepinfra-reasoning t13_budget_rollover    r2  PASS     87.0s  req=11
+  commandcode-goat-noreasoning t13_budget_rollover    r2  PASS     70.6s  req=10
+  deepinfra-reasoning t01_tags               r3  PASS     47.2s  req=8
+  commandcode-goat   t01_tags               r3  PASS     52.3s  req=6
+  commandcode-goat   t13_budget_rollover    r2  PASS    101.6s  req=9
+  deepinfra-reasoning t12_fx_rates           r2  PASS    237.5s  req=14
+  commandcode-goat-noreasoning t01_tags               r3  PASS     59.1s  req=6
+  deepinfra          t01_tags               r3  PASS     62.4s  req=7
+  deepinfra-reasoning t02_split_bug          r3  PASS     79.9s  req=6
+  deepinfra          t02_split_bug          r3  PASS     48.4s  req=6
+  commandcode-goat-noreasoning t02_split_bug          r3  PASS     86.2s  req=8
+  commandcode-goat   t02_split_bug          r3  PASS     75.5s  req=6
+  deepinfra          t03_csv_quotes         r3  PASS     55.2s  req=6
+  deepinfra-reasoning t03_csv_quotes         r3  PASS     86.6s  req=7
+  commandcode-goat   t03_csv_quotes         r3  PASS     64.1s  req=6
+  commandcode-goat-noreasoning t03_csv_quotes         r3  PASS     90.9s  req=7
+  deepinfra-reasoning t04_refactor_report    r3  PASS     61.1s  req=7
+  commandcode-goat-noreasoning t04_refactor_report    r3  PASS     61.6s  req=6
+  commandcode-goat   t04_refactor_report    r3  PASS     71.5s  req=6
+  deepinfra          t04_refactor_report    r3  PASS     51.0s  req=5
+  commandcode-goat-noreasoning t05_write_tests        r3  PASS     63.3s  req=8
+  deepinfra-reasoning t05_write_tests        r3  PASS     65.0s  req=8
+  deepinfra          t05_write_tests        r3  PASS     74.5s  req=6
+  commandcode-goat   t05_write_tests        r3  PASS     88.6s  req=6
+  commandcode-goat-noreasoning t06_currency           r3  PASS     65.5s  req=9
+  deepinfra-reasoning t06_currency           r3  PASS    127.0s  req=15
+  deepinfra          t06_currency           r3  PASS    100.6s  req=12
+  commandcode-goat   t06_currency           r3  PASS     65.3s  req=7
+  deepinfra-reasoning t07_cli_balance        r3  PASS     68.4s  req=8
+  commandcode-goat   t07_cli_balance        r3  PASS     43.5s  req=6
+  commandcode-goat-noreasoning t07_cli_balance        r3  PASS     49.9s  req=6
+  deepinfra          t07_cli_balance        r3  PASS     46.7s  req=7
+  deepinfra-reasoning t08_dedupe_perf        r3  PASS     38.8s  req=7
+  commandcode-goat-noreasoning t08_dedupe_perf        r3  PASS     59.9s  req=8
+  deepinfra          t08_dedupe_perf        r3  PASS     49.5s  req=7
+  commandcode-goat   t08_dedupe_perf        r3  PASS     62.2s  req=8
+  commandcode-goat-noreasoning t09_recurring          r3  PASS     49.6s  req=6
+  deepinfra-reasoning t09_recurring          r3  PASS     84.8s  req=11
+  deepinfra          t09_recurring          r3  PASS     93.7s  req=12
+  commandcode-goat   t09_recurring          r3  PASS     90.4s  req=10
+  commandcode-goat   t10_query_dsl          r3  PASS    142.4s  req=10
+  deepinfra-reasoning t10_query_dsl          r3  PASS    187.2s  req=13
+  commandcode-goat-noreasoning t10_query_dsl          r3  PASS    142.8s  req=22
+  deepinfra          t10_query_dsl          r3  fail    197.5s  req=28
+  deepinfra-reasoning t11_reconcile          r3  PASS    184.0s  req=14
+  deepinfra-reasoning t12_fx_rates           r3  PASS     84.2s  req=7
+  commandcode-goat-noreasoning t11_reconcile          r3  PASS    184.0s  req=27
+  deepinfra          t11_reconcile          r2  fail   1200.2s  req=138  TIMEOUT
+  commandcode-goat   t11_reconcile          r3  PASS    241.7s  req=20
+  commandcode-goat-noreasoning t12_fx_rates           r3  fail     40.2s  req=7
+  commandcode-goat   t12_fx_rates           r3  PASS    101.7s  req=15
+  deepinfra-reasoning t13_budget_rollover    r3  PASS     91.5s  req=9
+  commandcode-goat-noreasoning t13_budget_rollover    r3  PASS     69.9s  req=7
+  deepinfra          t13_budget_rollover    r3  PASS     53.3s  req=7
+  commandcode-goat   t13_budget_rollover    r3  PASS    111.5s  req=11
+  deepinfra-reasoning t01_tags               r4  PASS     36.1s  req=6
+  commandcode-goat   t01_tags               r4  PASS     58.6s  req=6
+  deepinfra          t01_tags               r4  PASS     55.0s  req=8
+  commandcode-goat-noreasoning t01_tags               r4  PASS     63.2s  req=7
+  deepinfra-reasoning t02_split_bug          r4  PASS     44.8s  req=6
+  deepinfra          t02_split_bug          r4  PASS     62.2s  req=6
+  commandcode-goat-noreasoning t02_split_bug          r4  PASS     56.5s  req=6
+  commandcode-goat   t02_split_bug          r4  PASS     63.0s  req=6
+  commandcode-goat-noreasoning t03_csv_quotes         r4  PASS     46.1s  req=6
+  commandcode-goat   t03_csv_quotes         r4  PASS     59.1s  req=6
+  deepinfra          t03_csv_quotes         r4  PASS     49.0s  req=7
+  deepinfra-reasoning t03_csv_quotes         r4  PASS    137.3s  req=12
+  deepinfra-reasoning t04_refactor_report    r4  PASS     60.6s  req=6
+  commandcode-goat-noreasoning t04_refactor_report    r4  PASS     49.8s  req=6
+  commandcode-goat   t04_refactor_report    r4  PASS     56.0s  req=5
+  deepinfra          t04_refactor_report    r4  PASS     54.1s  req=5
+  commandcode-goat-noreasoning t05_write_tests        r4  PASS     44.7s  req=6
+  deepinfra-reasoning t05_write_tests        r4  PASS     77.5s  req=6
+  deepinfra          t05_write_tests        r4  PASS     91.2s  req=8
+  commandcode-goat   t05_write_tests        r4  PASS     50.3s  req=7
+  commandcode-goat   t06_currency           r4  PASS     74.5s  req=7
+  deepinfra          t06_currency           r4  PASS     54.3s  req=7
+  deepinfra-reasoning t06_currency           r4  PASS    116.9s  req=10
+  commandcode-goat-noreasoning t06_currency           r4  PASS     95.8s  req=8
+  deepinfra-reasoning t07_cli_balance        r4  PASS     63.2s  req=6
+  commandcode-goat-noreasoning t07_cli_balance        r4  PASS     63.3s  req=6
+  deepinfra          t07_cli_balance        r4  PASS     51.3s  req=7
+  commandcode-goat   t07_cli_balance        r4  PASS     73.5s  req=6
+  deepinfra          t08_dedupe_perf        r4  PASS     50.9s  req=7
+  deepinfra-reasoning t08_dedupe_perf        r4  PASS     69.8s  req=7
+  commandcode-goat-noreasoning t08_dedupe_perf        r4  PASS     63.7s  req=7
+  commandcode-goat   t08_dedupe_perf        r4  PASS     61.9s  req=7
+  commandcode-goat-noreasoning t09_recurring          r4  PASS     50.0s  req=7
+  deepinfra          t09_recurring          r4  PASS     60.0s  req=7
+  deepinfra-reasoning t09_recurring          r4  PASS    112.8s  req=13
+  commandcode-goat   t09_recurring          r4  PASS    126.4s  req=10
+  deepinfra          t11_reconcile          r3  PASS   1200.2s  req=164  TIMEOUT
+  deepinfra          t12_fx_rates           r3  PASS   1200.2s  req=185  TIMEOUT
+  deepinfra          t10_query_dsl          r4  PASS    137.5s  req=21
+  deepinfra-reasoning t10_query_dsl          r4  PASS    204.5s  req=13
+  deepinfra-reasoning t11_reconcile          r4  PASS    110.7s  req=10
+  commandcode-goat-noreasoning t10_query_dsl          r4  PASS    213.2s  req=22
+  commandcode-goat   t10_query_dsl          r4  PASS    211.0s  req=12
+  commandcode-goat-noreasoning t12_fx_rates           r4  PASS     42.6s  req=7
+  commandcode-goat   t12_fx_rates           r4  PASS    103.2s  req=11
+  deepinfra          t12_fx_rates           r4  PASS     54.1s  req=12
+  commandcode-goat   t11_reconcile          r4  PASS    170.2s  req=15
+  deepinfra-reasoning t12_fx_rates           r4  PASS    176.8s  req=17
+  commandcode-goat-noreasoning t11_reconcile          r4  fail    230.3s  req=30
+  commandcode-goat-noreasoning t13_budget_rollover    r4  PASS     47.8s  req=7
+  deepinfra          t13_budget_rollover    r4  PASS     50.4s  req=6
+  deepinfra          t11_reconcile          r4  PASS    302.2s  req=18
+  commandcode-goat   t13_budget_rollover    r4  PASS     96.2s  req=8
+  deepinfra-reasoning t01_tags               r5  PASS     69.4s  req=7
+  deepinfra-reasoning t13_budget_rollover    r4  PASS    220.5s  req=18
+  deepinfra          t01_tags               r5  PASS    123.7s  req=7
+  commandcode-goat-noreasoning t01_tags               r5  PASS    146.5s  req=7
+  commandcode-goat   t01_tags               r5  PASS     69.1s  req=6
+  commandcode-goat   t02_split_bug          r5  PASS     65.7s  req=6
+  deepinfra-reasoning t02_split_bug          r5  PASS     71.7s  req=6
+  commandcode-goat-noreasoning t02_split_bug          r5  PASS     93.4s  req=6
+  deepinfra          t02_split_bug          r5  PASS     74.5s  req=7
+  deepinfra-reasoning t03_csv_quotes         r5  PASS     74.1s  req=6
+  deepinfra          t03_csv_quotes         r5  PASS     45.9s  req=7
+  commandcode-goat   t03_csv_quotes         r5  PASS     53.5s  req=7
+  commandcode-goat-noreasoning t03_csv_quotes         r5  fail    101.3s  req=8
+  deepinfra          t04_refactor_report    r5  PASS     49.1s  req=6
+  deepinfra-reasoning t04_refactor_report    r5  PASS     79.1s  req=9
+  commandcode-goat   t04_refactor_report    r5  PASS     58.1s  req=6
+  commandcode-goat-noreasoning t04_refactor_report    r5  PASS     69.1s  req=7
+  commandcode-goat-noreasoning t05_write_tests        r5  PASS     52.2s  req=7
+  commandcode-goat-noreasoning t06_currency           r5  PASS     44.6s  req=6
+  deepinfra          t05_write_tests        r5  PASS     59.3s  req=8
+  deepinfra-reasoning t05_write_tests        r5  PASS     97.8s  req=8
+  commandcode-goat   t05_write_tests        r5  PASS     82.3s  req=8
+  commandcode-goat   t06_currency           r5  PASS    140.0s  req=6
+  deepinfra          t07_cli_balance        r5  PASS     47.2s  req=6
+  deepinfra-reasoning t07_cli_balance        r5  PASS     65.4s  req=6
+  commandcode-goat-noreasoning t07_cli_balance        r5  PASS     49.2s  req=7
+  deepinfra          t06_currency           r5  PASS    100.3s  req=6
+  deepinfra-reasoning t06_currency           r5  PASS    237.6s  req=17
+  commandcode-goat   t07_cli_balance        r5  PASS     77.5s  req=6
+  commandcode-goat   t08_dedupe_perf        r5  PASS     65.2s  req=6
+  deepinfra-reasoning t08_dedupe_perf        r5  PASS     78.7s  req=7
+  deepinfra          t08_dedupe_perf        r5  PASS     47.7s  req=7
+  commandcode-goat-noreasoning t08_dedupe_perf        r5  PASS     60.7s  req=6
+  commandcode-goat-noreasoning t09_recurring          r5  PASS     65.5s  req=8
+  deepinfra-reasoning t09_recurring          r5  PASS     93.1s  req=8
+  deepinfra          t09_recurring          r5  PASS    104.6s  req=10
+  commandcode-goat   t09_recurring          r5  PASS    181.4s  req=12
+  commandcode-goat-noreasoning t10_query_dsl          r5  PASS    119.8s  req=8
+  commandcode-goat   t10_query_dsl          r5  PASS    176.1s  req=10
+  deepinfra-reasoning t10_query_dsl          r5  PASS    257.9s  req=12
+  deepinfra-reasoning t11_reconcile          r5  PASS    194.2s  req=10
+  commandcode-goat   t11_reconcile          r5  PASS    179.5s  req=13
+  deepinfra-reasoning t12_fx_rates           r5  PASS    188.0s  req=14
+  commandcode-goat-noreasoning t11_reconcile          r5  PASS    285.5s  req=27
+  commandcode-goat   t12_fx_rates           r5  PASS    133.7s  req=10
+  commandcode-goat-noreasoning t12_fx_rates           r5  PASS    360.7s  req=18
+  deepinfra          t13_budget_rollover    r5  PASS    344.0s  req=7
+  deepinfra-reasoning t13_budget_rollover    r5  PASS    450.3s  req=9
+  deepinfra-reasoning: finished the task sequence
+  commandcode-goat-noreasoning t13_budget_rollover    r5  PASS    198.2s  req=7
+  commandcode-goat-noreasoning: finished the task sequence
+  deepinfra          t10_query_dsl          r5  fail    991.5s  req=65
+  deepinfra          t12_fx_rates           r5  fail    426.4s  req=9
+  commandcode-goat   t13_budget_rollover    r5  PASS     43.5s  req=6
+  commandcode-goat: finished the task sequence
+  deepinfra          t11_reconcile          r5  fail   1200.3s  req=39  TIMEOUT
+  deepinfra: finished the task sequence
+
+done. results: /suite/results/results.jsonl
+next: python analyze.py --config suite_config.json
+# Agent-suite results
+
+_Generated 2026-11-09 02:12 from `results/`._
+
+## Setup
+
+| side | requested model | served model(s) | provider(s) | first request (UTC) | last request (UTC) |
+|---|---|---|---|---|---|
+| deepinfra | deepseek-ai/DeepSeek-V4.1-Flash-1017 | deepseek-ai/DeepSeek-V4.1-Flash-1017 | None | 2026-11-09T00:15 | 2026-11-09T02:08 |
+| deepinfra-reasoning | deepseek-ai/DeepSeek-V4.1-Flash-1017 | deepseek-ai/DeepSeek-V4.1-Flash-1017 | None | 2026-11-09T00:15 | 2026-11-09T02:01 |
+| commandcode-goat | deepseek/deepseek-v4.1-flash | deepseek/deepseek-v4.1-flash | None | 2026-11-09T00:15 | 2026-11-09T02:02 |
+| commandcode-goat-noreasoning | deepseek/deepseek-v4.1-flash | deepseek/deepseek-v4.1-flash | None | 2026-11-09T00:15 | 2026-11-09T02:02 |
+
+Harness: `opencode run` with the same config on every side; agent timeout 1200s; tasks: 13.
+
+Preflight: `preflight-20261109-001424.json`
+
+## Headline
+
+| metric | deepinfra | deepinfra-reasoning | commandcode-goat | commandcode-goat-noreasoning |
+|---|---|---|---|---|
+| passed tasks per $10 | 2698.0 | 3529.8 | 12052.2 | 16772.2 |
+| pass rate | 0.908 | 1.0 | 0.985 | 0.923 |
+| pass rate 95% CI | [0.813, 0.957] | [0.944, 1.0] | [0.918, 0.997] | [0.832, 0.967] |
+| graded runs | 65 | 65 | 65 | 65 |
+| billed (own basis) | 0.2187 | 0.1841 | 0.531 | 0.3577 |
+| billing basis | reported_cost | reported_cost | credits | credits |
+| list-price value delivered | 0.3381 | 0.3259 | 0.3365 | 0.2251 |
+| $10 buys this much list-price value (×) | 1.55 | 1.77 | 6.34 | 6.29 |
+| billed per passed task | 0.0037 | 0.0028 | 0.0083 | 0.006 |
+| billed per graded run (mean) | 0.0034 | 0.0028 | 0.0082 | 0.0055 |
+| billed per graded run 95% CI | [0.00195, 0.00521] | [0.00241, 0.0033] | [0.00646, 0.01011] | [0.00438, 0.00679] |
+| plan $ per passed task |  |  | 0.0008 | 0.0006 |
+| projected passed tasks / month |  |  | 12052.2 | 16772.2 |
+| min weeks to use monthly credits |  |  | 2.0 | 2.0 |
+
+_Pay-as-you-go: "per $10" is what this run actually spent. Subscription: "per $10" assumes the month's full credit allowance gets used at the credits-per-passed-task rate measured here; it can't be used faster than the weekly cap allows. "Billed" is in each side's own currency: provider-reported dollars, or plan credits (tokens × the plan's per-model rate, doubled in peak hours)._
+
+## Tokens and caching
+
+| metric | deepinfra | deepinfra-reasoning | commandcode-goat | commandcode-goat-noreasoning |
+|---|---|---|---|---|
+| requests | 1100 | 617 | 538 | 608 |
+| mean_requests_per_run | 16.9 | 9.5 | 8.3 | 9.4 |
+| prompt_tokens | 25183393 | 7368900 | 6005343 | 6361186 |
+| cached_tokens | 24488320 | 6777600 | 5126272 | 5550848 |
+| cache_hit_rate | 0.972 | 0.92 | 0.854 | 0.873 |
+| output_tokens | 267243 | 361469 | 315455 | 144774 |
+| reasoning_tokens | 0 | 209809 | 172688 | 0 |
+| mean_prompt_tokens_per_run | 387437 | 113368 | 92390 | 97864 |
+| peak_request_share | 0.0 | 0.0 | 0.561 | 0.571 |
+
+## Speed
+
+| metric | deepinfra | deepinfra-reasoning | commandcode-goat | commandcode-goat-noreasoning |
+|---|---|---|---|---|
+| median_ttft_s | 0.792 | 0.722 | 1.407 | 1.414 |
+| p90_ttft_s | 1.633 | 1.126 | 1.68 | 1.702 |
+| median_headers_s | 0.435 | 0.378 | 1.397 | 1.39 |
+| median_request_latency_s | 1.714 | 1.847 | 2.269 | 1.841 |
+| median_output_tok_per_s | 225.534 | 185.525 | 234.0 | 291.177 |
+| median_wall_s_per_run | 65.5 | 94.3 | 86.0 | 70.6 |
+
+## Reliability
+
+| metric | deepinfra | deepinfra-reasoning | commandcode-goat | commandcode-goat-noreasoning |
+|---|---|---|---|---|
+| tool_calls | 1010 | 627 | 542 | 502 |
+| malformed_tool_calls | 0 | 0 | 0 | 0 |
+| malformed_tool_call_rate | 0.0 | 0.0 | 0.0 | 0.0 |
+| agent_timeouts | 4 | 0 | 0 | 0 |
+| runs_cut_off_by_cap | 0 | 0 | 0 | 0 |
+| cap_responses | 0 | 0 | 0 | 0 |
+| rate_limited_responses | 0 | 0 | 0 | 0 |
+| other_errors | 0 | 0 | 0 | 0 |
+| billed_missing_reported_cost | 0 | 0 | 0 | 0 |
+
+## Usage windows: commandcode-goat
+
+| 5h window opened (UTC) | requests | credits used | list value | capped at |
+|---|---|---|---|---|
+| 2026-11-09T00:15 | 538 | $0.5310 | $0.3365 |  |
+
+| 7-day window opened (UTC) | requests | credits used | capped at |
+|---|---|---|---|
+| 2026-11-09T00:15 | 538 | $0.5310 |  |
+
+## Usage windows: commandcode-goat-noreasoning
+
+| 5h window opened (UTC) | requests | credits used | list value | capped at |
+|---|---|---|---|---|
+| 2026-11-09T00:15 | 608 | $0.3577 | $0.2251 |  |
+
+| 7-day window opened (UTC) | requests | credits used | capped at |
+|---|---|---|---|
+| 2026-11-09T00:15 | 608 | $0.3577 |  |
+
+## Paired outcomes (same task, same repeat, both sides graded)
+
+| pair (A vs B) | both passed | only A | only B | neither | pairs | sign test p (discordant pairs) |
+|---|---|---|---|---|---|---|
+| deepinfra vs deepinfra-reasoning | 59 | 0 | 6 | 0 | 65 | 0.0312 |
+| deepinfra vs commandcode-goat | 58 | 1 | 6 | 0 | 65 | 0.125 |
+| deepinfra vs commandcode-goat-noreasoning | 54 | 5 | 6 | 0 | 65 | 1.0 |
+| deepinfra-reasoning vs commandcode-goat | 64 | 1 | 0 | 0 | 65 | 1.0 |
+| deepinfra-reasoning vs commandcode-goat-noreasoning | 60 | 5 | 0 | 0 | 65 | 0.0625 |
+| commandcode-goat vs commandcode-goat-noreasoning | 59 | 5 | 1 | 0 | 65 | 0.2188 |
+
+## Pass rate by task group
+
+| group (pass rate, 95% CI) | deepinfra | deepinfra-reasoning | commandcode-goat | commandcode-goat-noreasoning |
+|---|---|---|---|---|
+| core (8 tasks) | 40/40 = 1.00 [0.912, 1.0] | 40/40 = 1.00 [0.912, 1.0] | 39/40 = 0.97 [0.871, 0.996] | 39/40 = 0.97 [0.871, 0.996] |
+| hard (5 tasks) | 19/25 = 0.76 [0.566, 0.885] | 25/25 = 1.00 [0.867, 1.0] | 25/25 = 1.00 [0.867, 1.0] | 21/25 = 0.84 [0.653, 0.936] |
+
+## Per task
+
+| task | deepinfra (passed · billed/run · median wall) | deepinfra-reasoning (passed · billed/run · median wall) | commandcode-goat (passed · billed/run · median wall) | commandcode-goat-noreasoning (passed · billed/run · median wall) |
+|---|---|---|---|---|
+| t01_tags | 5/5 · $0.0011/run · 93.8s | 5/5 · $0.0011/run · 69.4s | 5/5 · $0.0026/run · 61.7s | 5/5 · $0.0027/run · 73.5s |
+| t02_split_bug | 5/5 · $0.0010/run · 65.5s | 5/5 · $0.0013/run · 71.7s | 5/5 · $0.0029/run · 75.5s | 5/5 · $0.0026/run · 91.5s |
+| t03_csv_quotes | 5/5 · $0.0012/run · 49.0s | 5/5 · $0.0021/run · 86.6s | 4/5 · $0.0042/run · 59.1s | 4/5 · $0.0032/run · 90.9s |
+| t04_refactor_report | 5/5 · $0.0011/run · 51.0s | 5/5 · $0.0017/run · 79.1s | 5/5 · $0.0031/run · 58.1s | 5/5 · $0.0030/run · 69.1s |
+| t05_write_tests | 5/5 · $0.0019/run · 74.5s | 5/5 · $0.0026/run · 85.0s | 5/5 · $0.0079/run · 82.3s | 5/5 · $0.0062/run · 63.3s |
+| t06_currency | 5/5 · $0.0019/run · 100.3s | 5/5 · $0.0028/run · 127.0s | 5/5 · $0.0065/run · 74.5s | 5/5 · $0.0048/run · 95.8s |
+| t07_cli_balance | 5/5 · $0.0012/run · 51.3s | 5/5 · $0.0016/run · 65.4s | 5/5 · $0.0042/run · 77.5s | 5/5 · $0.0035/run · 55.7s |
+| t08_dedupe_perf | 5/5 · $0.0010/run · 49.5s | 5/5 · $0.0011/run · 69.8s | 5/5 · $0.0034/run · 63.7s | 5/5 · $0.0032/run · 60.7s |
+| t09_recurring | 4/5 · $0.0016/run · 78.8s | 5/5 · $0.0026/run · 93.1s | 5/5 · $0.0103/run · 100.3s | 5/5 · $0.0041/run · 50.0s |
+| t10_query_dsl | 3/5 · $0.0072/run · 197.1s | 5/5 · $0.0070/run · 210.3s | 5/5 · $0.0218/run · 176.1s | 4/5 · $0.0120/run · 142.8s |
+| t11_reconcile | 3/5 · $0.0158/run · 1200.2s | 5/5 · $0.0053/run · 184.0s | 5/5 · $0.0216/run · 179.5s | 4/5 · $0.0157/run · 184.0s |
+| t12_fx_rates | 4/5 · $0.0075/run · 81.0s | 5/5 · $0.0047/run · 176.8s | 5/5 · $0.0103/run · 103.2s | 3/5 · $0.0064/run · 42.6s |
+| t13_budget_rollover | 5/5 · $0.0013/run · 50.4s | 5/5 · $0.0030/run · 150.8s | 5/5 · $0.0074/run · 101.6s | 5/5 · $0.0042/run · 70.6s |
+
+wrote /suite/results/summary.json, /suite/results/per_task.csv, /suite/results/report.md

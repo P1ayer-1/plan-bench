@@ -1,0 +1,4 @@
+I'll start by exploring the codebase.
+Added the `balance` command in `ledger/cli.py:14` with inclusive `--since`/`--until` filtering, `--category`, exact one-line output, zero fallback, and argparse date validation (stderr + exit 2). `summary` remains unchanged.
+
+Tests: `python -m pytest -q` → 4 passed.

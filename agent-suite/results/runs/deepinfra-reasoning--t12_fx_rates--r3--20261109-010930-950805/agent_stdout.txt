@@ -1,0 +1,5 @@
+Implemented `ledger/fx.py` with `RateTable` and `convert`, plus `Ledger.balance_in`, and exported the new API from `ledger/__init__.py`.
+
+Rate lookups support direct, inverse, and USD-cross rates with exact `Decimal` arithmetic. Conversions round once to the cent, while `balance_in` sums unrounded amounts before rounding.
+
+`python -m pytest -q` passes: 4 passed.

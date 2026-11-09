@@ -1,0 +1,51 @@
+diff --git a/ledger/money.py b/ledger/money.py
+index c17d860..b89069a 100644
+--- a/ledger/money.py
++++ b/ledger/money.py
+@@ -38,9 +38,14 @@ class Money:
+         return f"{self.amount} {self.currency}"
+ 
+     def split(self, n):
+-        """Split into n parts."""
+-        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-        return [Money(part, self.currency) for _ in range(n)]
++        """Split into n parts whose total equals this amount."""
++        if n <= 0:
++            raise ValueError("n must be a positive integer")
++        total_cents = int((self.amount / CENT).to_integral_value())
++        sign = -1 if total_cents < 0 else 1
++        base, remainder = divmod(abs(total_cents), n)
++        cents = [base + (1 if i < remainder else 0) for i in range(n)]
++        return [Money(sign * c * CENT, self.currency) for c in cents]
+ 
+     @classmethod
+     def zero(cls, currency="USD"):
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..0404584 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -29,3 +29,24 @@ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++def test_split_sums_and_distributes_remainder():
++    parts = Money("10.00").split(3)
++    assert parts == [Money("3.34"), Money("3.33"), Money("3.33")]
++    assert sum(parts, Money.zero()) == Money("10.00")
++
++
++def test_split_negative():
++    parts = Money("-10.00").split(3)
++    assert parts == [Money("-3.34"), Money("-3.33"), Money("-3.33")]
++    assert sum(parts, Money.zero()) == Money("-10.00")
++
++
++def test_split_invalid_n():
++    import pytest
++
++    with pytest.raises(ValueError):
++        Money("10.00").split(0)
++    with pytest.raises(ValueError):
++        Money("10.00").split(-1)

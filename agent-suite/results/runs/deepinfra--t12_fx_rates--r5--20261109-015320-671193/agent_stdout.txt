@@ -1,0 +1,2 @@
+Refining `balance_in` so unrounded converted amounts are used (not the cent-rounded Money):
+Added `ledger/fx.py` (`RateTable`, `convert`) and `Ledger.balance_in`. All 4 existing tests pass.

@@ -1,0 +1,1 @@
+Done. Implemented `CurrencyMismatch` with currency checks on add/sub/lt, made `Ledger.balance()` return per-currency totals, updated `monthly_summary` for mixed-currency tuple keys, updated the CLI display, and expanded tests. `python -m pytest -q` passes (9 tests).

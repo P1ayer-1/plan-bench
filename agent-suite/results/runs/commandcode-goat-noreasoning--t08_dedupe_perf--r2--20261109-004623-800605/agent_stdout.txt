@@ -1,0 +1,2 @@
+Money is hashable, so use a set.
+Done. `dedupe()` now uses a set for O(n) lookup; 200k transactions dedupe in ~0.19s, tests pass.

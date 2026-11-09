@@ -1,0 +1,94 @@
+diff --git a/ledger/budget.py b/ledger/budget.py
+new file mode 100644
+index 0000000..e12980e
+--- /dev/null
++++ b/ledger/budget.py
+@@ -0,0 +1,88 @@
++import re
++from .money import Money
++
++_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
++
++
++def _parse_month(value):
++    if not isinstance(value, str):
++        raise ValueError(f"Malformed month: {value!r}")
++    m = _MONTH_RE.match(value)
++    if not m:
++        raise ValueError(f"Malformed month: {value!r}")
++    month = int(m.group(2))
++    if month < 1 or month > 12:
++        raise ValueError(f"Malformed month: {value!r}")
++    return int(m.group(1)), month
++
++
++def _month_str(year, month):
++    return f"{year:04d}-{month:02d}"
++
++
++def budget_report(ledger, budgets, start_month, end_month, rollover_cap=None):
++    start_year, start_m = _parse_month(start_month)
++    end_year, end_m = _parse_month(end_month)
++
++    if (start_year, start_m) > (end_year, end_m):
++        raise ValueError("start_month must not be after end_month")
++
++    months = []
++    year, month = start_year, start_m
++    while (year, month) <= (end_year, end_m):
++        months.append(_month_str(year, month))
++        if month == 12:
++            year, month = year + 1, 1
++        else:
++            month += 1
++
++    month_set = set(months)
++
++    spent = {
++        m: {cat: Money.zero(budget.currency) for cat, budget in budgets.items()}
++        for m in months
++    }
++
++    for tx in ledger.transactions:
++        m = _month_str(tx.date.year, tx.date.month)
++        if m not in month_set:
++            continue
++        cat = tx.category
++        if cat not in budgets:
++            continue
++        budget = budgets[cat]
++        if tx.amount.currency != budget.currency:
++            raise ValueError(
++                f"Currency mismatch for category {cat!r}: "
++                f"{tx.amount.currency} != {budget.currency}"
++            )
++        spent[m][cat] = spent[m][cat] - tx.amount
++
++    report = {}
++    carried = {cat: Money.zero(b.currency) for cat, b in budgets.items()}
++
++    for m in months:
++        row_month = {}
++        for cat in budgets:
++            budget = budgets[cat]
++            carried_in = carried[cat]
++            month_spent = spent[m][cat]
++            available = budget + carried_in
++            remaining = available - month_spent
++
++            row_month[cat] = {
++                "budget": budget,
++                "carried_in": carried_in,
++                "spent": month_spent,
++                "available": available,
++                "remaining": remaining,
++            }
++
++            nxt = remaining if remaining.amount > 0 else Money.zero(budget.currency)
++            if rollover_cap is not None and nxt.amount > rollover_cap.amount:
++                nxt = rollover_cap
++            carried[cat] = nxt
++
++        report[m] = row_month
++
++    return report

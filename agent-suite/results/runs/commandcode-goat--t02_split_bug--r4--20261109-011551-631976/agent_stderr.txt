@@ -1,0 +1,104 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f -not -path './.git/*' | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:15 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:15 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  9 01:16 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m$ [0mcat README.md && cat opencode.json && git log --oneline -5
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat/run/commandcode-goat--t02_split_bug--r4--20261109-011551-631976/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}1aa99af base
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t02_split_bug--r4--20261109-011551-631976/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t02_split_bug--r4--20261109-011551-631976/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t02_split_bug--r4--20261109-011551-631976/ws/ledger/money.py
+@@ -37,11 +37,18 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts whose sum equals the original amount."""
++    if n <= 0:
++        raise ValueError("n must be positive")
++    total_cents = int(self.amount / CENT)
++    sign = -1 if total_cents < 0 else 1
++    quotient, remainder = divmod(abs(total_cents), n)
++    parts = [
++        sign * (quotient + (1 if i < remainder else 0)) for i in range(n)
++    ]
++    return [Money(Decimal(cents) * CENT, self.currency) for cents in parts]
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'EOF'
+from ledger import Money
+for amt, n in [("10.00",3),("-10.00",3),("0.01",3),("-0.01",3),("10.00",1),("-10.00",4)]:
+    p = Money(amt).split(n)
+    print(amt, n, [str(x.amount) for x in p], sum(x.amount for x in p))
+for n in (0,-1):
+    try: Money("1").split(n)
+    except ValueError as e: print(n, "ValueError", e)
+EOF
+....                                                                     [100%]
+4 passed in 0.42s
+10.00 3 ['3.34', '3.33', '3.33'] 10.00
+-10.00 3 ['-3.34', '-3.33', '-3.33'] -10.00
+0.01 3 ['0.01', '0.00', '0.00'] 0.01
+-0.01 3 ['-0.01', '0.00', '0.00'] -0.01
+10.00 1 ['10.00'] 10.00
+-10.00 4 ['-2.50', '-2.50', '-2.50', '-2.50'] -10.00
+0 ValueError n must be positive
+-1 ValueError n must be positive
+[0m

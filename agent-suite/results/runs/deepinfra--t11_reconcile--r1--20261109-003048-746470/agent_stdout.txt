@@ -1,0 +1,7 @@
+I'll explore the codebase first.
+Now I'll implement the reconciliation. Let me think through the algorithm.
+
+The core is a min-cost bipartite matching: maximize pairs (max cardinality), minimize total date distance. Since pairs are within groups of equal `Money`, we can solve each amount group independently using min-cost max-flow or Hungarian. Given amount appears ≤100 per side, groups are tiny.
+Let me verify correctness with a brute-force check and performance test.
+Fast. Now export and run tests.
+Added `ledger/reconcile.py` with `reconcile()` and `Reconciliation`, exported from `ledger`. Pairing uses per-amount min-cost max-flow, maximizing pair count then minimizing total date distance. Verified against brute force (500 random cases) and ~0.3s on 4000×4000; existing tests pass.

@@ -1,0 +1,6 @@
+Done. All tests pass (`4 passed`).
+
+- Added `CurrencyMismatch(ValueError)` and currency checks in `Money.__add__`, `__sub__`, and `__lt__` (`ledger/money.py`).
+- `Ledger.balance()` now returns `{currency: Money}` (`ledger/ledger.py`).
+- `monthly_summary` uses `(category, currency)` keys only for mixed-currency months (`ledger/report.py`).
+- Updated CLI output and balance test; exported `CurrencyMismatch` from the package.

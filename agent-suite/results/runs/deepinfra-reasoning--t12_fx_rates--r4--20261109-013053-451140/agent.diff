@@ -1,0 +1,127 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..6cec68b
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,76 @@
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++
++def _as_decimal(rate):
++    if isinstance(rate, Decimal):
++        return rate
++    if isinstance(rate, int):
++        return Decimal(rate)
++    return Decimal(str(rate))
++
++
++class RateTable:
++    """Historical exchange rates, stored as exact Decimals."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        """From date ``on`` onward, 1 unit of ``base`` equals ``rate`` of ``quote``."""
++        value = _as_decimal(rate)
++        self._rates.setdefault((base, quote), {})[on] = value
++
++    def _latest(self, base, quote, on):
++        rates = self._rates.get((base, quote))
++        if not rates:
++            return None
++        best_date = None
++        best_rate = None
++        for rate_date, rate in rates.items():
++            if rate_date <= on and (best_date is None or rate_date >= best_date):
++                best_date = rate_date
++                best_rate = rate
++        return best_rate
++
++    def _direct(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        rate = self._latest(base, quote, on)
++        if rate is not None:
++            return rate
++        inverse = self._latest(quote, base, on)
++        if inverse is not None:
++            with localcontext() as context:
++                context.prec = max(context.prec, 28)
++                return Decimal(1) / inverse
++        return None
++
++    def rate(self, base, quote, on):
++        """Return the exchange rate from ``base`` to ``quote`` in effect on ``on``."""
++        with localcontext() as context:
++            context.prec = max(context.prec, 28)
++            rate = self._direct(base, quote, on)
++            if rate is not None:
++                return rate
++            base_usd = self._direct(base, "USD", on)
++            usd_quote = self._direct("USD", quote, on)
++            if base_usd is not None and usd_quote is not None:
++                return base_usd * usd_quote
++        raise KeyError((base, quote, on))
++
++
++def _exact_product(left, right):
++    with localcontext() as context:
++        context.prec = max(
++            context.prec,
++            len(left.as_tuple().digits) + len(right.as_tuple().digits),
++        )
++        return left * right
++
++
++def convert(money, to, table, on):
++    """Convert ``money`` to currency ``to`` at the rate on date ``on``."""
++    rate = table.rate(money.currency, to, on)
++    return Money(_exact_product(money.amount, rate), to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..e29e51f 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,8 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
++from .fx import _exact_product
+ 
+ 
+ @dataclass(frozen=True)
+@@ -38,6 +40,23 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        """Return the ledger total in ``currency``, converting each transaction
++        at its own date (or at ``on`` when given) and rounding once at the end."""
++        if not self.transactions:
++            return Money.zero(currency)
++        terms = []
++        for tx in self.transactions:
++            rate_date = on if on is not None else tx.date
++            rate = table.rate(tx.amount.currency, currency, rate_date)
++            terms.append(_exact_product(tx.amount.amount, rate))
++        with localcontext() as context:
++            max_adjusted = max(term.adjusted() for term in terms)
++            min_exponent = min(term.as_tuple().exponent for term in terms)
++            context.prec = max(context.prec, max_adjusted - min_exponent + 1)
++            total = sum(terms, Decimal(0))
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

@@ -1,0 +1,2 @@
+Now add `add_recurring` to Ledger.
+Done. Added `ledger/recurring.py` with `Recurrence`, `occurrences`, `expand`, plus `Ledger.add_recurring`; existing tests pass.

@@ -1,0 +1,2 @@
+I found a bug in my Hungarian implementation's handling of dummy columns. Let me rewrite it with a cleaner, provably correct approach.
+Now test performance and duplicates on larger inputs.

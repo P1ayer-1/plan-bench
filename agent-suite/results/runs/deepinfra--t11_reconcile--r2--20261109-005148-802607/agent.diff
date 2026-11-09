@@ -1,0 +1,160 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..052bf42
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,154 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _min_cost_assignment(cost, n_rows, n_cols):
++    """Min-cost assignment on a rectangular matrix (n_rows <= n_cols).
++
++    Successive-shortest-path Hungarian algorithm (e-maxx form).  Returns the
++    column assigned to each row, or -1 when a row is left unassigned.
++    """
++    INF = float("inf")
++    u = [0] * (n_rows + 1)
++    v = [0] * (n_cols + 1)
++    p = [0] * (n_cols + 1)
++    way = [0] * (n_cols + 1)
++    for i in range(1, n_rows + 1):
++        p[0] = i
++        j0 = 0
++        minv = [INF] * (n_cols + 1)
++        used = [False] * (n_cols + 1)
++        while True:
++            used[j0] = True
++            i0 = p[j0]
++            delta = INF
++            j1 = 0
++            row = cost[i0 - 1]
++            for j in range(1, n_cols + 1):
++                if not used[j]:
++                    cur = row[j - 1] - u[i0] - v[j]
++                    if cur < minv[j]:
++                        minv[j] = cur
++                        way[j] = j0
++                    if minv[j] < delta:
++                        delta = minv[j]
++                        j1 = j
++            for j in range(n_cols + 1):
++                if used[j]:
++                    u[p[j]] += delta
++                    v[j] -= delta
++                else:
++                    minv[j] -= delta
++            j0 = j1
++            if p[j0] == 0:
++                break
++        while True:
++            j1 = way[j0]
++            p[j0] = p[j1]
++            j0 = j1
++            if j0 == 0:
++                break
++    result = [-1] * n_rows
++    for j in range(1, n_cols + 1):
++        if p[j] != 0:
++            result[p[j] - 1] = j - 1
++    return result
++
++
++def _solve_group(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
++    """Optimal pairing for one group of equal amounts.
++
++    Maximise the number of pairs; among those, minimise the total date
++    distance.  Both objectives go into a single cost: every eligible pair
++    costs ``distance + penalty`` where ``penalty`` exceeds the largest
++    possible total distance, so an extra pair always beats a smaller distance,
++    and within a fixed pair count the distance decides.  Pairs beyond
++    ``max_days`` are given a huge cost so they are never chosen.  Padding
++    (unmatched) rows and columns cost zero.
++    """
++    n_l = len(ledger_idx)
++    n_b = len(bank_idx)
++    if n_l == 0 or n_b == 0:
++        return []
++    max_dist = 0
++    for i in ledger_idx:
++        di = ledger_txs[i].date
++        for j in bank_idx:
++            d = abs((di - bank_txs[j].date).days)
++            if d > max_dist:
++                max_dist = d
++    pairs_cap = min(n_l, n_b)
++    penalty = max_dist * pairs_cap + 1
++    forbidden = penalty * (pairs_cap + 1)
++    m = n_l + n_b
++    transposed = n_l > n_b
++    rows = bank_idx if transposed else ledger_idx
++    cols = ledger_idx if transposed else bank_idx
++    cost = [[0] * m for _ in range(m)]
++    for r, i in enumerate(rows):
++        di = ledger_txs[i].date
++        row = cost[r]
++        for c, j in enumerate(cols):
++            d = abs((di - bank_txs[j].date).days)
++            row[c] = d + penalty if d <= max_days else forbidden
++    p = _min_cost_assignment(cost, m, m)
++    pairs = []
++    for r in range(len(rows)):
++        c = p[r]
++        if 0 <= c < len(cols):
++            if transposed:
++                j, i = rows[r], cols[c]
++            else:
++                i, j = rows[r], cols[c]
++            if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
++                pairs.append((i, j))
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ledger transactions against bank transactions.
++
++    A ledger transaction and a bank transaction are paired only when their
++    amounts are equal (currency included) and their dates are at most
++    ``max_days`` days apart.  The result maximises the number of pairs and,
++    subject to that, minimises the total date distance.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_groups = {}
++    for i, tx in enumerate(ledger_txs):
++        ledger_groups.setdefault(tx.amount, []).append(i)
++    bank_groups = {}
++    for j, tx in enumerate(bank_txs):
++        bank_groups.setdefault(tx.amount, []).append(j)
++
++    matched_pairs = []
++    for amount, lidx in ledger_groups.items():
++        bidx = bank_groups.get(amount)
++        if not bidx:
++            continue
++        matched_pairs.extend(
++            _solve_group(lidx, bidx, ledger_txs, bank_txs, max_days)
++        )
++
++    matched_pairs.sort(key=lambda pair: pair[0])
++
++    used_ledger = {i for i, _ in matched_pairs}
++    used_bank = {j for _, j in matched_pairs}
++
++    return Reconciliation(
++        matched=[(ledger_txs[i], bank_txs[j]) for i, j in matched_pairs],
++        unmatched_ledger=[
++            tx for i, tx in enumerate(ledger_txs) if i not in used_ledger
++        ],
++        unmatched_bank=[
++            tx for j, tx in enumerate(bank_txs) if j not in used_bank
++        ],
++    )

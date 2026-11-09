@@ -1,0 +1,1 @@
+Done. `CurrencyMismatch` is raised on mixed-currency add/sub/`<`, `Ledger.balance()` returns per-currency totals (empty `{}`), and `monthly_summary` uses `(category, currency)` keys only for multi-currency months. CLI and tests updated; all 8 tests pass.

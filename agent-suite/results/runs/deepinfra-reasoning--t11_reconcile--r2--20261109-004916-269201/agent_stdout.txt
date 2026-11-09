@@ -1,0 +1,3 @@
+Added `ledger/reconcile.py` with `reconcile()` and `Reconciliation`, using an optimal per-amount matching algorithm that maximizes pairs then minimizes total date distance.
+
+`python -m pytest -q` → **4 passed**.

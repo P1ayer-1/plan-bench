@@ -1,0 +1,383 @@
+diff --git a/ledger/__pycache__/__init__.cpython-311.pyc b/ledger/__pycache__/__init__.cpython-311.pyc
+new file mode 100644
+index 0000000..50e1d3b
+Binary files /dev/null and b/ledger/__pycache__/__init__.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/cli.cpython-311.pyc b/ledger/__pycache__/cli.cpython-311.pyc
+new file mode 100644
+index 0000000..e2198f3
+Binary files /dev/null and b/ledger/__pycache__/cli.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/ledger.cpython-311.pyc b/ledger/__pycache__/ledger.cpython-311.pyc
+new file mode 100644
+index 0000000..819809c
+Binary files /dev/null and b/ledger/__pycache__/ledger.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/money.cpython-311.pyc b/ledger/__pycache__/money.cpython-311.pyc
+new file mode 100644
+index 0000000..d2d9c54
+Binary files /dev/null and b/ledger/__pycache__/money.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/parser.cpython-311.pyc b/ledger/__pycache__/parser.cpython-311.pyc
+new file mode 100644
+index 0000000..cff8ae4
+Binary files /dev/null and b/ledger/__pycache__/parser.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/query.cpython-311.pyc b/ledger/__pycache__/query.cpython-311.pyc
+new file mode 100644
+index 0000000..8afc9d7
+Binary files /dev/null and b/ledger/__pycache__/query.cpython-311.pyc differ
+diff --git a/ledger/__pycache__/report.cpython-311.pyc b/ledger/__pycache__/report.cpython-311.pyc
+new file mode 100644
+index 0000000..3ae3572
+Binary files /dev/null and b/ledger/__pycache__/report.cpython-311.pyc differ
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..b911c71 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -32,6 +32,13 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching the query language, in original order."""
++        from .query import compile_query
++
++        match = compile_query(query)
++        return [tx for tx in self.transactions if match(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/query.py b/ledger/query.py
+new file mode 100644
+index 0000000..424e37a
+--- /dev/null
++++ b/ledger/query.py
+@@ -0,0 +1,281 @@
++import re
++from datetime import date
++from decimal import Decimal
++
++OPERATORS = ("<=", ">=", "<", ">", "=")
++NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
++DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
++FIELDS = ("category", "tag", "desc", "amount", "date")
++KEYWORDS = ("AND", "OR", "NOT")
++
++
++class _Token:
++    __slots__ = ("kind", "value")
++
++    def __init__(self, kind, value):
++        self.kind = kind
++        self.value = value
++
++    def __repr__(self):
++        return f"_Token({self.kind!r}, {self.value!r})"
++
++
++def _scan(text, i):
++    """Yield (kind, value) pairs from the raw query text."""
++    tokens = []
++    n = len(text)
++    while i < n:
++        ch = text[i]
++        if ch.isspace():
++            i += 1
++            continue
++        if ch in "()":
++            tokens.append(_Token("LPAREN" if ch == "(" else "RPAREN", ch))
++            i += 1
++            continue
++        if ch == '"':
++            value, i = _read_quoted(text, i)
++            tokens.append(_Token("VALUE", value))
++            continue
++        # A run of non-delimiter characters; may include a quoted string
++        # directly after a field prefix such as category:"a b".
++        parts = []
++        while i < n and not text[i].isspace() and text[i] not in '()"':
++            parts.append(text[i])
++            i += 1
++        if i < n and text[i] == '"':
++            value, i = _read_quoted(text, i)
++            parts.append(value)
++        word = "".join(parts)
++        if not word:
++            raise ValueError(f"unexpected character: {ch!r}")
++        upper = word.upper()
++        if word == upper and upper in KEYWORDS:
++            tokens.append(_Token(upper, upper))
++        else:
++            tokens.append(_Token("WORD", word))
++    return tokens
++
++
++def _read_quoted(text, i):
++    i += 1
++    out = []
++    n = len(text)
++    while i < n:
++        ch = text[i]
++        if ch == "\\":
++            if i + 1 >= n:
++                raise ValueError("unterminated quote")
++            nxt = text[i + 1]
++            if nxt in ('"', "\\"):
++                out.append(nxt)
++                i += 2
++                continue
++            raise ValueError(f"invalid escape: \\{nxt}")
++        if ch == '"':
++            return "".join(out), i + 1
++        out.append(ch)
++        i += 1
++    raise ValueError("unterminated quote")
++
++
++def _split_value(raw):
++    """Split a WORD token into (field, raw_value)."""
++    if ":" in raw:
++        field, _, value = raw.partition(":")
++        if field not in FIELDS:
++            raise ValueError(f"unknown field: {field!r}")
++        if field in ("amount", "date"):
++            raise ValueError(f"missing operator for {field!r}")
++        if value == "":
++            raise ValueError(f"missing value for {field!r}")
++        return field, value
++    field = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
++    if field not in ("amount", "date"):
++        if field in FIELDS:
++            raise ValueError(f"missing operator for {field!r}")
++        raise ValueError(f"expected a term, got {raw!r}")
++    return field, raw[len(field):]
++
++
++def _parse_number(value):
++    if not NUMBER_RE.match(value):
++        raise ValueError(f"invalid number: {value!r}")
++    return Decimal(value)
++
++
++def _parse_date(value):
++    if not DATE_RE.match(value):
++        raise ValueError(f"invalid date: {value!r}")
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        raise ValueError(f"invalid date: {value!r}") from None
++
++
++def _term(raw):
++    field, value = _split_value(raw)
++    if field in ("category", "tag", "desc"):
++        needle = value.lower()
++        if field == "category":
++            return lambda tx: tx.category.lower() == needle
++        if field == "tag":
++            return lambda tx: any(t.lower() == needle for t in tx.tags)
++        return lambda tx: needle in tx.description.lower()
++    # comparison fields
++    op, operand = _split_comparison(value)
++    if field == "amount":
++        number = _parse_number(operand)
++        cmp = _comparison(op)
++        return lambda tx: cmp(tx.amount.amount, number)
++    target = _parse_date(operand)
++    cmp = _comparison(op)
++    return lambda tx: cmp(tx.date, target)
++
++
++def _is_operator(text):
++    return any(text == op for op in OPERATORS)
++
++
++def _is_complete_comparison(tail):
++    for op in OPERATORS:
++        if tail.startswith(op) and len(tail) > len(op):
++            return True
++    return False
++
++
++def _split_comparison(value):
++    for op in OPERATORS:
++        if value.startswith(op):
++            operand = value[len(op):]
++            if operand == "":
++                raise ValueError("missing operand")
++            return op, operand
++    raise ValueError(f"missing or invalid operator in {value!r}")
++
++
++def _comparison(op):
++    return {
++        "<": lambda a, b: a < b,
++        "<=": lambda a, b: a <= b,
++        ">": lambda a, b: a > b,
++        ">=": lambda a, b: a >= b,
++        "=": lambda a, b: a == b,
++    }[op]
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        if self.pos < len(self.tokens):
++            return self.tokens[self.pos]
++        return None
++
++    def advance(self):
++        tok = self.peek()
++        self.pos += 1
++        return tok
++
++    def parse(self):
++        if not self.tokens:
++            return lambda tx: True
++        node = self.parse_or()
++        if self.peek() is not None:
++            raise ValueError(f"unexpected token: {self.peek().value!r}")
++        return node
++
++    def parse_or(self):
++        node = self.parse_and()
++        while self.peek() is not None and self.peek().kind == "OR":
++            self.advance()
++            node = _or(node, self.parse_and())
++        return node
++
++    def parse_and(self):
++        node = self.parse_not()
++        while True:
++            tok = self.peek()
++            if tok is None:
++                break
++            if tok.kind == "AND":
++                self.advance()
++                node = _and(node, self.parse_not())
++                continue
++            if tok.kind in ("NOT", "LPAREN", "WORD"):
++                node = _and(node, self.parse_not())
++                continue
++            break
++        return node
++
++    def parse_not(self):
++        tok = self.peek()
++        if tok is not None and tok.kind == "NOT":
++            self.advance()
++            operand = self.parse_not()
++            return lambda tx, f=operand: not f(tx)
++        return self.parse_primary()
++
++    def _assemble_comparison(self, head, tail=""):
++        rest = tail
++        if not _is_operator(rest):
++            op_tok = self.peek()
++            if op_tok is None or op_tok.kind != "WORD":
++                raise ValueError(f"missing operator for {head!r}")
++            self.advance()
++            rest += op_tok.value
++        for op in OPERATORS:
++            if rest.startswith(op):
++                operand = rest[len(op):]
++                if operand == "":
++                    val = self.peek()
++                    if val is None or val.kind != "WORD":
++                        raise ValueError("missing operand")
++                    self.advance()
++                    operand = val.value
++                return head + op + operand
++        raise ValueError(f"invalid operator: {rest!r}")
++
++    def parse_primary(self):
++        tok = self.peek()
++        if tok is None:
++            raise ValueError("missing operand")
++        if tok.kind == "WORD":
++            self.advance()
++            raw = tok.value
++            if ":" not in raw:
++                head = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
++                if head in ("amount", "date"):
++                    tail = raw[len(head):]
++                    if not _is_complete_comparison(tail):
++                        raw = self._assemble_comparison(head, tail)
++            return _term(raw)
++        if tok.kind == "LPAREN":
++            self.advance()
++            if self.peek() is not None and self.peek().kind == "RPAREN":
++                raise ValueError("empty group")
++            node = self.parse_or()
++            closing = self.peek()
++            if closing is None or closing.kind != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.advance()
++            return node
++        raise ValueError(f"unexpected token: {tok.value!r}")
++
++
++def _and(a, b):
++    return lambda tx: a(tx) and b(tx)
++
++
++def _or(a, b):
++    return lambda tx: a(tx) or b(tx)
++
++
++def compile_query(query):
++    """Compile a search query string into a predicate over transactions."""
++    if not isinstance(query, str):
++        raise ValueError("query must be a string")
++    tokens = _scan(query, 0)
++    return _Parser(tokens).parse()
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..540c2d7 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -29,3 +29,45 @@ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++def test_search_terms_and_operators():
++    l = Ledger(parse_csv(CSV))
++    assert [t.description for t in l.search("category:FOOD")] == ["Coffee"]
++    assert [t.description for t in l.search("tag:MONTHLY")] == ["Rent"]
++    assert [t.description for t in l.search("desc:cof")] == ["Coffee"]
++    assert [t.description for t in l.search("amount<-20")] == ["Rent"]
++    assert [t.description for t in l.search("amount >= 3000")] == ["Salary"]
++    assert [t.description for t in l.search("date>=2026-02-01")] == ["Rent"]
++    assert [t.description for t in l.search("category:food OR category:income")] == ["Coffee", "Salary"]
++    assert [t.description for t in l.search("NOT category:food")] == ["Salary", "Rent"]
++    assert [t.description for t in l.search("category:food tag:morning")] == ["Coffee"]
++    assert l.search("") == l.transactions
++    assert l.search("   ") == l.transactions
++
++
++def test_search_precedence_and_groups():
++    l = Ledger(parse_csv(CSV))
++    q = "(category:food OR category:income) AND amount>0"
++    assert [t.description for t in l.search(q)] == ["Salary"]
++    q = "category:food OR category:income AND amount>0"
++    assert [t.description for t in l.search(q)] == ["Coffee", "Salary"]
++
++
++def test_search_quoted_and_escaped():
++    from ledger import Transaction, Money
++    from datetime import date
++    l = Ledger([Transaction(date(2026, 1, 1), 'say "hi" (there)', Money("1"), "a b", ('x y',))])
++    assert l.search('desc:"say \\"hi\\" (there)"') == l.transactions
++    assert l.search('category:"a b"') == l.transactions
++    assert l.search('tag:"x y"') == l.transactions
++
++
++def test_search_errors():
++    import pytest
++    l = Ledger(parse_csv(CSV))
++    for bad in ["foo:bar", "(category:food", "category:food AND", "OR tag:x",
++                "NOT", "amount<>1", "amount<abc", "date>2026-13-01",
++                'desc:"abc', "()"]:
++        with pytest.raises(ValueError):
++            l.search(bad)

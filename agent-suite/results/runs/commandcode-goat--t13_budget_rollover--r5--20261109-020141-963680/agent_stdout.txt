@@ -1,0 +1,1 @@
+Created `ledger/budget.py` with `budget_report`, including month validation, inclusive iteration, per-category currency checks, and capped rollover. All 4 existing tests pass.

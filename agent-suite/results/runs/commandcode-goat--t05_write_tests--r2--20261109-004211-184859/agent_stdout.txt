@@ -1,0 +1,2 @@
+I'll start by exploring the codebase to understand the functions.
+Created `tests/test_report.py` with 22 tests covering month grouping/formatting, cross-month isolation, year ordering, category summation, sign handling, currency preservation, default/custom `n`, strict expense filtering, tie stability, and non-mutation. Full suite passes: `26 passed`. `ledger/` untouched.

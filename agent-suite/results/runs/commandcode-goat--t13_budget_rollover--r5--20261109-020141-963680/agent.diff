@@ -1,0 +1,88 @@
+diff --git a/ledger/budget.py b/ledger/budget.py
+new file mode 100644
+index 0000000..d244311
+--- /dev/null
++++ b/ledger/budget.py
+@@ -0,0 +1,82 @@
++from decimal import Decimal
++
++from .money import Money
++
++
++def _parse_month(value):
++    if (
++        not isinstance(value, str)
++        or len(value) != 7
++        or value[4] != "-"
++        or not value[:4].isdigit()
++        or not value[5:].isdigit()
++    ):
++        raise ValueError(f"invalid month: {value!r}")
++    month = int(value[5:])
++    if month < 1 or month > 12:
++        raise ValueError(f"invalid month: {value!r}")
++    return int(value[:4]), month
++
++
++def _month_index(year, month):
++    return year * 12 + month - 1
++
++
++def _month_from_index(index):
++    year, month = divmod(index, 12)
++    return f"{year:04d}-{month + 1:02d}"
++
++
++def budget_report(ledger, budgets, start_month, end_month, rollover_cap=None):
++    """Return a per-month budget report with optional rollover."""
++    start_year, start_num = _parse_month(start_month)
++    end_year, end_num = _parse_month(end_month)
++    start = _month_index(start_year, start_num)
++    end = _month_index(end_year, end_num)
++    if start > end:
++        raise ValueError("start_month must not be after end_month")
++
++    spent = {}
++    for tx in ledger.transactions:
++        index = _month_index(tx.date.year, tx.date.month)
++        if index < start or index > end:
++            continue
++        if tx.category not in budgets:
++            continue
++        budget = budgets[tx.category]
++        if tx.amount.currency != budget.currency:
++            raise ValueError(
++                f"currency mismatch for category {tx.category!r}: "
++                f"budget is {budget.currency}, transaction is {tx.amount.currency}"
++            )
++        key = (index, tx.category)
++        spent[key] = spent.get(key, Decimal(0)) + tx.amount.amount
++
++    result = {}
++    carried = {}
++    for index in range(start, end + 1):
++        month = _month_from_index(index)
++        rows = {}
++        next_carried = {}
++        for category, budget in budgets.items():
++            currency = budget.currency
++            carried_in = carried.get(category, Money.zero(currency))
++            spent_amount = spent.get((index, category), Decimal(0))
++            spent_money = Money(-spent_amount, currency)
++            available = budget + carried_in
++            remaining = available - spent_money
++            rows[category] = {
++                "budget": budget,
++                "carried_in": carried_in,
++                "spent": spent_money,
++                "available": available,
++                "remaining": remaining,
++            }
++
++            carry_amount = max(remaining.amount, Decimal(0))
++            if rollover_cap is not None:
++                carry_amount = min(carry_amount, rollover_cap.amount)
++            next_carried[category] = Money(carry_amount, currency)
++        carried = next_carried
++        result[month] = rows
++    return result

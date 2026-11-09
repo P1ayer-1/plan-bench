@@ -1,0 +1,2 @@
+Line numbering is off because blank rows are filtered before enumeration. Fix by tracking original line numbers.
+Done. `ledger/parser.py` now uses the `csv` module for quote handling, tolerates `\r\n`, defaults a missing `tags` column to none, and raises `ValueError` with the actual 1-based line number. All 4 tests pass.

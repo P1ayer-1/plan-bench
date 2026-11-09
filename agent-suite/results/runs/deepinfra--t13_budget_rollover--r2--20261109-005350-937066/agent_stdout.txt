@@ -1,0 +1,2 @@
+Let me quickly sanity-check the new module.
+Created `ledger/budget.py` with `budget_report`, including validation, per-month rows, rollover with zero-floor and optional cap, currency checks, and month-range filtering. All 4 existing tests pass.

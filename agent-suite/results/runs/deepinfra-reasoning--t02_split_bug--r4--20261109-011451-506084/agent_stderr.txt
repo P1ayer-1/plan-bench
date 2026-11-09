@@ -1,0 +1,93 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f -not -path './.git/*' | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:14 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:14 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 671 Nov  9 01:15 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead README.md
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t02_split_bug--r4--20261109-011451-506084/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t02_split_bug--r4--20261109-011451-506084/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t02_split_bug--r4--20261109-011451-506084/ws/ledger/money.py
+@@ -37,11 +37,21 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts that sum exactly to this amount."""
++    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
++        raise ValueError("n must be a positive integer")
+ 
++    total_cents = int(self.amount / CENT)
++    sign = -1 if total_cents < 0 else 1
++    base, extra = divmod(abs(total_cents), n)
++
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < extra else 0)
++        parts.append(Money(Decimal(sign * cents) * CENT, self.currency))
++    return parts
++
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+from ledger import Money
+for amt in ("10.00", "-10.00", "0.01", "-0.01", "10.01"):
+    for n in (1, 3, 7):
+        p = Money(amt).split(n)
+        print(amt, n, [str(x.amount) for x in p], sum(x.amount for x in p))
+try:
+    Money("1").split(0)
+except ValueError as e:
+    print("split(0):", e)
+try:
+    Money("1").split(-2)
+except ValueError as e:
+    print("split(-2):", e)
+PY
+....                                                                     [100%]
+4 passed in 0.56s
+10.00 1 ['10.00'] 10.00
+10.00 3 ['3.34', '3.33', '3.33'] 10.00
+10.00 7 ['1.43', '1.43', '1.43', '1.43', '1.43', '1.43', '1.42'] 10.00
+-10.00 1 ['-10.00'] -10.00
+-10.00 3 ['-3.34', '-3.33', '-3.33'] -10.00
+-10.00 7 ['-1.43', '-1.43', '-1.43', '-1.43', '-1.43', '-1.43', '-1.42'] -10.00
+0.01 1 ['0.01'] 0.01
+0.01 3 ['0.01', '0.00', '0.00'] 0.01
+0.01 7 ['0.01', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00'] 0.01
+-0.01 1 ['-0.01'] -0.01
+-0.01 3 ['-0.01', '0.00', '0.00'] -0.01
+-0.01 7 ['-0.01', '0.00', '0.00', '0.00', '0.00', '0.00', '0.00'] -0.01
+10.01 1 ['10.01'] 10.01
+10.01 3 ['3.34', '3.34', '3.33'] 10.01
+10.01 7 ['1.43', '1.43', '1.43', '1.43', '1.43', '1.43', '1.43'] 10.01
+split(0): n must be a positive integer
+split(-2): n must be a positive integer
+[0m

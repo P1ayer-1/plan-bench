@@ -1,0 +1,62 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..0032a9a 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -1,3 +1,5 @@
++import csv
++import io
+ from datetime import date
+ from .money import Money
+ from .ledger import Transaction
+@@ -8,15 +10,44 @@ HEADER = ["date", "description", "amount", "category", "tags"]
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+     tags are separated by ';'. Returns a list of Transaction."""
+-    lines = [l for l in text.strip().splitlines() if l.strip()]
+-    if not lines:
++    if not text or not text.strip():
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
+-    if header != HEADER:
+-        raise ValueError(f"bad header: {header}")
++
++    reader = csv.reader(io.StringIO(text, newline=""))
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    header = None
++    previous_line = 0
++    while True:
++        try:
++            row = next(reader)
++        except StopIteration:
++            break
++        line_no = previous_line + 1
++        previous_line = reader.line_num
++
++        if not row or all(not field.strip() for field in row):
++            continue
++
++        if header is None:
++            header = [field.strip() for field in row]
++            if header == HEADER:
++                has_tags = True
++            elif header == HEADER[:-1]:
++                has_tags = False
++            else:
++                raise ValueError(f"bad header: {header}")
++            continue
++
++        expected = len(HEADER) if has_tags else len(HEADER) - 1
++        if has_tags and len(row) == expected - 1:
++            row = row + [""]
++        elif len(row) != expected:
++            raise ValueError(
++                f"line {line_no}: expected {expected} fields, got {len(row)}"
++            )
++
++        d, desc, amt, cat = row[:4]
++        tags = row[4] if has_tags else ""
+         out.append(Transaction(
+             date=date.fromisoformat(d.strip()),
+             description=desc.strip(),

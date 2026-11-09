@@ -1,0 +1,773 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R | head -50; cat *.md 2>/dev/null | head -50
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat ledger/ledger.py ledger/__init__.py; cat tests/test_basic.py
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m$ [0mcat ledger/money.py ledger/parser.py
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+[0m
+[0m← [0mWrite ledger/query.py
+Wrote file successfully.
+[0m
+[0m← [0mWrite ledger/query.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/ledger.py
+@@ -31,8 +31,15 @@
+             continue
+         out.append(tx)
+     return out
+ 
++def search(self, query):
++    """Return transactions matching the query language, in original order."""
++    from .query import compile_query
++
++    match = compile_query(query)
++    return [tx for tx in self.transactions if match(tx)]
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Ledger, Transaction, Money
+from datetime import date
+t1=Transaction(date(2026,1,3),"Coffee shop",Money("-4.50"),"Food",("morning","x"))
+t2=Transaction(date(2026,1,15),"Salary",Money("3000"),"income",())
+t3=Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly"))
+l=Ledger([t1,t2,t3])
+def s(q): return [t.description for t in l.search(q)]
+print(s(""))
+print(s("category:food"))
+print(s("tag:MONTHLY"))
+print(s('desc:"coffee shop"'))
+print(s("desc:coffee"))
+print(s("amount<-20"))
+print(s("amount >= 10.50"))
+print(s("date>=2026-02-01"))
+print(s("category:food OR category:income"))
+print(s("NOT category:food"))
+print(s("category:food tag:x"))
+print(s('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'))
+print(s("(category:food OR category:income) AND amount>0"))
+for bad in ["foo:bar","(category:food","category:food AND","OR tag:x","NOT","amount<","amount:x","date>2026-13-01","()",'desc:"abc',"amount=1.2.3","category:"]:
+    try:
+        l.search(bad); print("NO ERROR",bad)
+    except ValueError as e: print("ok",repr(bad),e)
+EOF
+['Coffee shop', 'Salary', 'Rent']
+['Coffee shop']
+['Rent']
+['Coffee shop']
+['Coffee shop']
+Traceback (most recent call last):
+  File "<stdin>", line 13, in <module>
+  File "<stdin>", line 7, in s
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/ledger.py", line 39, in search
+    match = compile_query(query)
+            ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 231, in compile_query
+    return _Parser(tokens).parse()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 162, in parse
+    node = self.parse_or()
+           ^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 168, in parse_or
+    node = self.parse_and()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 175, in parse_and
+    node = self.parse_not()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 196, in parse_not
+    return self.parse_primary()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 204, in parse_primary
+    return _term(tok.value)
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 110, in _term
+    field, value = _split_value(raw)
+                   ^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 85, in _split_value
+    raise ValueError(f"expected a term, got {raw!r}")
+ValueError: expected a term, got 'amount<-20'
+[0m
+[0m← [0mEdit ledger/query.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py
+@@ -80,16 +80,23 @@
+ 
+ 
+ def _split_value(raw):
+     """Split a WORD token into (field, raw_value)."""
+-    if ":" not in raw:
++    if ":" in raw:
++        field, _, value = raw.partition(":")
++        if field not in FIELDS:
++            raise ValueError(f"unknown field: {field!r}")
++        if field in ("amount", "date"):
++            raise ValueError(f"missing operator for {field!r}")
++        if value == "":
++            raise ValueError(f"missing value for {field!r}")
++        return field, value
++    field = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
++    if field not in ("amount", "date"):
++        if field in FIELDS:
++            raise ValueError(f"missing operator for {field!r}")
+         raise ValueError(f"expected a term, got {raw!r}")
+-    field, _, value = raw.partition(":")
+-    if field not in FIELDS:
+-        raise ValueError(f"unknown field: {field!r}")
+-    if value == "":
+-        raise ValueError(f"missing value for {field!r}")
+-    return field, value
++    return field, raw[len(field):]
+ 
+ 
+ def _parse_number(value):
+     if not NUMBER_RE.match(value):
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Ledger, Transaction, Money
+from datetime import date
+t1=Transaction(date(2026,1,3),"Coffee shop",Money("-4.50"),"Food",("morning","x"))
+t2=Transaction(date(2026,1,15),"Salary",Money("3000"),"income",())
+t3=Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly"))
+l=Ledger([t1,t2,t3])
+def s(q): return [t.description for t in l.search(q)]
+print(s("amount<-20"))
+print(s("amount >= 10.50"))
+print(s("date>=2026-02-01"))
+print(s("category:food OR category:income"))
+print(s("NOT category:food"))
+print(s("category:food tag:x"))
+print(s('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'))
+print(s("(category:food OR category:income) AND amount>0"))
+for bad in ["foo:bar","(category:food","category:food AND","OR tag:x","NOT","amount<","amount:x","date>2026-13-01","()",'desc:"abc',"amount=1.2.3","category:","amount<abc","amount= 5"]:
+    try:
+        l.search(bad); print("NO ERROR",bad)
+    except ValueError as e: print("ok",repr(bad),e)
+EOF
+['Rent']
+Traceback (most recent call last):
+  File "<stdin>", line 9, in <module>
+  File "<stdin>", line 7, in s
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/ledger.py", line 39, in search
+    match = compile_query(query)
+            ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 238, in compile_query
+    return _Parser(tokens).parse()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 169, in parse
+    node = self.parse_or()
+           ^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 175, in parse_or
+    node = self.parse_and()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 182, in parse_and
+    node = self.parse_not()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 203, in parse_not
+    return self.parse_primary()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 211, in parse_primary
+    return _term(tok.value)
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 131, in _term
+    raise ValueError(f"missing or invalid operator in {raw!r}")
+ValueError: missing or invalid operator in 'amount'
+[0m
+[0m$ [0mpython - <<'EOF'
+import re
+p=open("ledger/query.py").read()
+p=p.replace('''def _term(raw):
+    field, value = _split_value(raw)''','''def _term(raw):
+    field, value = _split_value(raw)''')
+open("ledger/query.py","w").write(p)
+EOF
+(no output)
+[0m
+[0m→ [0mRead ledger/query.py[90m [offset=80, limit=90][0m
+[0m
+[0m$ [0mpython - <<'EOF'
+p=open("ledger/query.py").read()
+p=p.replace('''    # comparison fields
+    for op in OPERATORS:
+        if value.startswith(op):
+            operand = value[len(op):]
+            break
+    else:
+        raise ValueError(f"missing or invalid operator in {raw!r}")
+    if field == "amount":''','''    # comparison fields
+    op, operand = _split_comparison(value)
+    if field == "amount":''')
+p=p.replace('''def _comparison(op):''','''def _split_comparison(value):
+    for op in OPERATORS:
+        if value.startswith(op):
+            operand = value[len(op):]
+            if operand == "":
+                raise ValueError("missing operand")
+            return op, operand
+    raise ValueError(f"missing or invalid operator in {value!r}")
+
+
+def _comparison(op):''')
+p=p.replace('''        if tok.kind == "WORD":
+            self.advance()
+            return _term(tok.value)''','''        if tok.kind == "WORD":
+            self.advance()
+            raw = tok.value
+            head = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
+            if ":" not in raw and head in ("amount", "date") and "=" not in raw.replace(">=", "").replace("<=", "")[len(head):] and raw == head:
+                raw = self._assemble_comparison(raw)
+            return _term(raw)''')
+p=p.replace('''    def parse_primary(self):''','''    def _assemble_comparison(self, head):
+        op_tok = self.peek()
+        if op_tok is None or op_tok.kind != "WORD":
+            raise ValueError(f"missing operator for {head!r}")
+        rest = op_tok.value
+        for op in OPERATORS:
+            if rest.startswith(op):
+                self.advance()
+                operand = rest[len(op):]
+                if operand == "":
+                    val = self.peek()
+                    if val is None or val.kind != "WORD":
+                        raise ValueError("missing operand")
+                    self.advance()
+                    operand = val.value
+                return head + op + operand
+        raise ValueError(f"invalid operator: {rest!r}")
+
+    def parse_primary(self):''')
+open("ledger/query.py","w").write(p)
+EOF
+(no output)
+[0m
+[0m$ [0mpython - <<'EOF'
+p=open("ledger/query.py").read()
+p=p.replace('''            raw = tok.value
+            head = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
+            if ":" not in raw and head in ("amount", "date") and "=" not in raw.replace(">=", "").replace("<=", "")[len(head):] and raw == head:
+                raw = self._assemble_comparison(raw)''','''            raw = tok.value
+            if ":" not in raw and raw in ("amount", "date"):
+                raw = self._assemble_comparison(raw)''')
+open("ledger/query.py","w").write(p)
+EOF
+python - <<'EOF'
+from ledger import Ledger, Transaction, Money
+from datetime import date
+t1=Transaction(date(2026,1,3),"Coffee shop",Money("-4.50"),"Food",("morning","x"))
+t2=Transaction(date(2026,1,15),"Salary",Money("3000"),"income",())
+t3=Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly"))
+l=Ledger([t1,t2,t3])
+def s(q): return [t.description for t in l.search(q)]
+for q in ["amount<-20","amount >= 10.50","date>=2026-02-01","date > 2026-01-01","category:food OR category:income","NOT category:food","category:food tag:x",'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5',"(category:food OR category:income) AND amount>0","amount=3000","amount = -4.50","(  )"]:
+    try: print(repr(q),s(q))
+    except ValueError as e: print(repr(q),"ERR",e)
+for bad in ["foo:bar","(category:food","category:food AND","OR tag:x","NOT","amount<","amount:x","date>2026-13-01","()",'desc:"abc',"amount=1.2.3","category:","amount<abc","amount= 5","amount => 5","category:food OR"]:
+    try:
+        l.search(bad); print("NO ERROR",bad)
+    except ValueError as e: print("ok",repr(bad),e)
+EOF
+'amount<-20' ['Rent']
+'amount >= 10.50' ['Salary']
+'date>=2026-02-01' ['Rent']
+'date > 2026-01-01' ['Coffee shop', 'Salary', 'Rent']
+'category:food OR category:income' ['Coffee shop', 'Salary']
+'NOT category:food' ['Salary', 'Rent']
+'category:food tag:x' ['Coffee shop']
+'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5' ['Coffee shop']
+'(category:food OR category:income) AND amount>0' ['Salary']
+'amount=3000' ['Salary']
+'amount = -4.50' ['Coffee shop']
+'(  )' ERR empty group
+ok 'foo:bar' unknown field: 'foo'
+ok '(category:food' unbalanced parentheses
+ok 'category:food AND' missing operand
+ok 'OR tag:x' unexpected token: 'OR'
+ok 'NOT' missing operand
+ok 'amount<' missing operand
+ok 'amount:x' missing operator for 'amount'
+ok 'date>2026-13-01' invalid date: '2026-13-01'
+ok '()' empty group
+ok 'desc:"abc' unterminated quote
+ok 'amount=1.2.3' invalid number: '1.2.3'
+ok 'category:' missing value for 'category'
+ok 'amount<abc' invalid number: 'abc'
+ok 'amount= 5' missing operand
+ok 'amount => 5' invalid number: '>'
+ok 'category:food OR' missing operand
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger.query import _scan
+print(_scan("amount = 5",0))
+EOF
+[_Token('WORD', 'amount'), _Token('WORD', '='), _Token('WORD', '5')]
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger.query import _parse
+import ledger.query as q
+print(q._Parser(q._scan("amount = 5",0))._assemble_comparison("amount"))
+EOF
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ImportError: cannot import name '_parse' from 'ledger.query' (/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py)
+[0m
+[0m$ [0mpython - <<'EOF'
+import ledger.query as q
+print(q._Parser(q._scan("amount = 5",0))._assemble_comparison("amount"))
+EOF
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r3--20261109-010557-237364/ws/ledger/query.py", line 226, in _assemble_comparison
+    raise ValueError(f"invalid operator: {rest!r}")
+ValueError: invalid operator: 'amount'
+[0m
+[0m$ [0mgrep -n "_assemble_comparison\|raw in\|raw = tok.value" ledger/query.py; sed -n '195,245p' ledger/query.py
+210:    def _assemble_comparison(self, head):
+234:            raw = tok.value
+235:            if ":" not in raw and raw in ("amount", "date"):
+236:                raw = self._assemble_comparison(raw)
+                continue
+            if tok.kind in ("NOT", "LPAREN", "WORD"):
+                node = _and(node, self.parse_not())
+                continue
+            break
+        return node
+
+    def parse_not(self):
+        tok = self.peek()
+        if tok is not None and tok.kind == "NOT":
+            self.advance()
+            operand = self.parse_not()
+            return lambda tx, f=operand: not f(tx)
+        return self.parse_primary()
+
+    def _assemble_comparison(self, head):
+        op_tok = self.peek()
+        if op_tok is None or op_tok.kind != "WORD":
+            raise ValueError(f"missing operator for {head!r}")
+        rest = op_tok.value
+        for op in OPERATORS:
+            if rest.startswith(op):
+                self.advance()
+                operand = rest[len(op):]
+                if operand == "":
+                    val = self.peek()
+                    if val is None or val.kind != "WORD":
+                        raise ValueError("missing operand")
+                    self.advance()
+                    operand = val.value
+                return head + op + operand
+        raise ValueError(f"invalid operator: {rest!r}")
+
+    def parse_primary(self):
+        tok = self.peek()
+        if tok is None:
+            raise ValueError("missing operand")
+        if tok.kind == "WORD":
+            self.advance()
+            raw = tok.value
+            if ":" not in raw and raw in ("amount", "date"):
+                raw = self._assemble_comparison(raw)
+            return _term(raw)
+        if tok.kind == "LPAREN":
+            self.advance()
+            if self.peek() is not None and self.peek().kind == "RPAREN":
+                raise ValueError("empty group")
+            node = self.parse_or()
+            closing = self.peek()
+            if closing is None or closing.kind != "RPAREN":
+                raise ValueError("unbalanced parentheses")
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Ledger,Transaction,Money
+from datetime import date
+l=Ledger([Transaction(date(2026,1,1),"x",Money("5"),"c",())])
+for q in ["amount = 5","amount= 5","amount =-5"]:
+    try: print(q,[t.amount for t in l.search(q)])
+    except ValueError as e: print(q,"ERR",e)
+EOF
+amount = 5 [Money('5.00', 'USD')]
+amount= 5 ERR missing operand
+amount =-5 []
+[0m
+[0m$ [0mpython - <<'EOF'
+p=open("ledger/query.py").read()
+p=p.replace('''            raw = tok.value
+            if ":" not in raw and raw in ("amount", "date"):
+                raw = self._assemble_comparison(raw)''','''            raw = tok.value
+            if ":" not in raw:
+                head = raw.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
+                if head in ("amount", "date"):
+                    tail = raw[len(head):]
+                    if not _is_complete_comparison(tail):
+                        raw = self._assemble_comparison(head, tail)''')
+p=p.replace('''    def _assemble_comparison(self, head):
+        op_tok = self.peek()
+        if op_tok is None or op_tok.kind != "WORD":
+            raise ValueError(f"missing operator for {head!r}")
+        rest = op_tok.value
+        for op in OPERATORS:
+            if rest.startswith(op):
+                self.advance()
+                operand = rest[len(op):]
+                if operand == "":
+                    val = self.peek()
+                    if val is None or val.kind != "WORD":
+                        raise ValueError("missing operand")
+                    self.advance()
+                    operand = val.value
+                return head + op + operand
+        raise ValueError(f"invalid operator: {rest!r}")''','''    def _assemble_comparison(self, head, tail=""):
+        rest = tail
+        if not _is_operator(rest):
+            op_tok = self.peek()
+            if op_tok is None or op_tok.kind != "WORD":
+                raise ValueError(f"missing operator for {head!r}")
+            self.advance()
+            rest += op_tok.value
+        for op in OPERATORS:
+            if rest.startswith(op):
+                operand = rest[len(op):]
+                if operand == "":
+                    val = self.peek()
+                    if val is None or val.kind != "WORD":
+                        raise ValueError("missing operand")
+                    self.advance()
+                    operand = val.value
+                return head + op + operand
+        raise ValueError(f"invalid operator: {rest!r}")''')
+p=p.replace('''def _split_comparison(value):''','''def _is_operator(text):
+    return any(text == op for op in OPERATORS)
+
+
+def _is_complete_comparison(tail):
+    for op in OPERATORS:
+        if tail.startswith(op) and len(tail) > len(op):
+            return True
+    return False
+
+
+def _split_comparison(value):''')
+open("ledger/query.py","w").write(p)
+EOF
+python - <<'EOF'
+from ledger import Ledger,Transaction,Money
+from datetime import date
+l=Ledger([Transaction(date(2026,1,1),"x",Money("5"),"c",()),Transaction(date(2026,1,1),"y",Money("-5"),"c",())])
+for q in ["amount = 5","amount= 5","amount =-5","amount<-1","amount < -1","date = 2026-01-01","date=2026-01-01","amount","date>=2026-01-01"]:
+    try: print(q,[str(t.amount) for t in l.search(q)])
+    except ValueError as e: print(q,"ERR",e)
+EOF
+amount = 5 ['5.00 USD']
+amount= 5 ['5.00 USD']
+amount =-5 ['-5.00 USD']
+amount<-1 ['-5.00 USD']
+amount < -1 ['-5.00 USD']
+date = 2026-01-01 ['5.00 USD', '-5.00 USD']
+date=2026-01-01 ['5.00 USD', '-5.00 USD']
+amount ERR missing operator for 'amount'
+date>=2026-01-01 ['5.00 USD', '-5.00 USD']
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Ledger,Transaction,Money
+from datetime import date
+ts=[Transaction(date(2026,1,1),'say "hi" (there) \\ end',Money("1"),"a b",('x y',)),Transaction(date(2026,1,2),"food",Money("2"),"food",())]
+l=Ledger(ts)
+for q in ['desc:"say \\"hi\\" (there) \\\\ end"','category:"a b"','tag:"x y"','desc:"(there)"','desc:(there)','category:food OR tag:"x y"']:
+    try: print(q,[t.description for t in l.search(q)])
+    except ValueError as e: print(q,"ERR",e)
+EOF
+python -m pytest -q
+desc:"say \"hi\" (there) \\ end" ['say "hi" (there) \\ end']
+category:"a b" ['say "hi" (there) \\ end']
+tag:"x y" ['say "hi" (there) \\ end']
+desc:"(there)" ['say "hi" (there) \\ end']
+desc:(there) ERR missing value for 'desc'
+category:food OR tag:"x y" ['say "hi" (there) \\ end', 'food']
+....                                                                     [100%]
+4 passed in 3.75s
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Ledger
+from ledger.query import compile_query
+l=Ledger([])
+for q in ['"foo"','CATEGORY:food','Amount<5','and category:x','category:food AND NOT','((category:x))','category:food))','category:""','desc:""','amount<1e5','date>2026-1-1','amount<>5','not tag:x']:
+    try: compile_query(q); print("ok",q)
+    except ValueError as e: print("ERR",repr(q),e)
+EOF
+ERR '"foo"' unexpected token: 'foo'
+ERR 'CATEGORY:food' unknown field: 'CATEGORY'
+ERR 'Amount<5' expected a term, got 'Amount<5'
+ERR 'and category:x' expected a term, got 'and'
+ERR 'category:food AND NOT' missing operand
+ok ((category:x))
+ERR 'category:food))' unexpected token: ')'
+ERR 'category:""' missing value for 'category'
+ERR 'desc:""' missing value for 'desc'
+ERR 'amount<1e5' invalid number: '1e5'
+ERR 'date>2026-1-1' invalid date: '2026-1-1'
+ERR 'amount<>5' invalid number: '>5'
+ERR 'not tag:x' expected a term, got 'not'
+[0m
+[0m$ [0mpython -m py_compile ledger/*.py && python -m pytest -q
+....                                                                     [100%]
+4 passed in 0.29s
+[0m
+[0m→ [0mRead ledger/query.py[90m [limit=80, offset=1][0m
+[0m
+[0m$ [0mpython - <<'EOF'
+p=open("ledger/query.py").read()
+p=p.replace("from decimal import Decimal, InvalidOperation","from decimal import Decimal")
+open("ledger/query.py","w").write(p)
+EOF
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 0.21s
+[0m
+[0m$ [0mcat >> tests/test_basic.py <<'EOF'
+
+
+def test_search_terms_and_operators():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.search("category:FOOD")] == ["Coffee"]
+    assert [t.description for t in l.search("tag:MONTHLY")] == ["Rent"]
+    assert [t.description for t in l.search("desc:cof")] == ["Coffee"]
+    assert [t.description for t in l.search("amount<-20")] == ["Rent"]
+    assert [t.description for t in l.search("amount >= 3000")] == ["Salary"]
+    assert [t.description for t in l.search("date>=2026-02-01")] == ["Rent"]
+    assert [t.description for t in l.search("category:food OR category:income")] == ["Coffee", "Salary"]
+    assert [t.description for t in l.search("NOT category:food")] == ["Salary", "Rent"]
+    assert [t.description for t in l.search("category:food tag:morning")] == ["Coffee"]
+    assert l.search("") == l.transactions
+    assert l.search("   ") == l.transactions
+
+
+def test_search_precedence_and_groups():
+    l = Ledger(parse_csv(CSV))
+    q = "(category:food OR category:income) AND amount>0"
+    assert [t.description for t in l.search(q)] == ["Salary"]
+    q = "category:food OR category:income AND amount>0"
+    assert [t.description for t in l.search(q)] == ["Coffee", "Salary"]
+
+
+def test_search_quoted_and_escaped():
+    from ledger import Transaction, Money
+    from datetime import date
+    l = Ledger([Transaction(date(2026, 1, 1), 'say "hi" (there)', Money("1"), "a b", ('x y',))])
+    assert l.search('desc:"say \\"hi\\" (there)"') == l.transactions
+    assert l.search('category:"a b"') == l.transactions
+    assert l.search('tag:"x y"') == l.transactions
+
+
+def test_search_errors():
+    import pytest
+    l = Ledger(parse_csv(CSV))
+    for bad in ["foo:bar", "(category:food", "category:food AND", "OR tag:x",
+                "NOT", "amount<>1", "amount<abc", "date>2026-13-01",
+                'desc:"abc', "()"]:
+        with pytest.raises(ValueError):
+            l.search(bad)
+EOF
+python -m pytest -q
+........                                                                 [100%]
+8 passed in 0.30s
+[0m
+[0m$ [0mgit status --short; python -m pytest -q
+M ledger/ledger.py
+ M tests/test_basic.py
+?? ledger/__pycache__/
+?? ledger/query.py
+........                                                                 [100%]
+8 passed in 0.63s
+[0m

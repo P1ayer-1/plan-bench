@@ -1,0 +1,1 @@
+Added `tests/test_report.py` with 27 tests covering month grouping, chronological ordering, zero-padded keys, month boundaries, sign/netting, currency preservation, sorting order, default `n`, ties, and non-mutation. All pass with `python -m pytest -q`.

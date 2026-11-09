@@ -1,0 +1,46 @@
+diff --git a/ledger/cli.py b/ledger/cli.py
+index dde6829..dd3472c 100644
+--- a/ledger/cli.py
++++ b/ledger/cli.py
+@@ -1,14 +1,28 @@
+ import argparse, sys
++from datetime import date
+ from .ledger import Ledger
++from .money import Money
+ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
++def _parse_date(value):
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        raise argparse.ArgumentTypeError(f"invalid date: {value!r}")
++
++
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++    b = sub.add_parser("balance", help="total balance with optional filters")
++    b.add_argument("file")
++    b.add_argument("--since", type=_parse_date)
++    b.add_argument("--until", type=_parse_date)
++    b.add_argument("--category")
+     args = ap.parse_args(argv)
+ 
+     with open(args.file) as f:
+@@ -18,6 +32,12 @@ def main(argv=None):
+             print(month)
+             for cat, total in sorted(cats.items()):
+                 print(f"  {cat}: {total}")
++    elif args.cmd == "balance":
++        txs = ledger.query(category=args.category, start=args.since, end=args.until)
++        total = Money.zero()
++        for tx in txs:
++            total = total + tx.amount
++        print(f"Balance: {total.amount:.2f} {total.currency}")
+     return 0
+ 
+ 

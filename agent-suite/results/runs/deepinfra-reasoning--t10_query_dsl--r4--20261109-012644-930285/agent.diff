@@ -1,0 +1,374 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..e0a9090 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -32,6 +32,15 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching a query, in their original order."""
++        from .search import compile_query
++
++        if not query.strip():
++            return list(self.transactions)
++        matches = compile_query(query)
++        return [tx for tx in self.transactions if matches(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..6f9b058
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,259 @@
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
++_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
++_OPERATORS = ("<=", ">=", "<", ">", "=")
++_FIELDS = ("category", "tag", "desc")
++
++
++class _Token:
++    __slots__ = ("kind", "value", "start", "end")
++
++    def __init__(self, kind, value, start, end):
++        self.kind = kind
++        self.value = value
++        self.start = start
++        self.end = end
++
++
++def _tokenize(query):
++    tokens = []
++    i = 0
++    n = len(query)
++    while i < n:
++        ch = query[i]
++        if ch.isspace():
++            i += 1
++            continue
++        if ch == "(":
++            tokens.append(_Token("LPAREN", ch, i, i + 1))
++            i += 1
++            continue
++        if ch == ")":
++            tokens.append(_Token("RPAREN", ch, i, i + 1))
++            i += 1
++            continue
++        if ch == '"':
++            start = i
++            i += 1
++            value = []
++            closed = False
++            while i < n:
++                ch = query[i]
++                if ch == "\\" and i + 1 < n and query[i + 1] in ('"', "\\"):
++                    value.append(query[i + 1])
++                    i += 2
++                    continue
++                if ch == '"':
++                    i += 1
++                    closed = True
++                    break
++                value.append(ch)
++                i += 1
++            if not closed:
++                raise ValueError("unterminated quote")
++            tokens.append(_Token("QUOTED", "".join(value), start, i))
++            continue
++        start = i
++        while i < n and not query[i].isspace() and query[i] not in '()"':
++            i += 1
++        tokens.append(_Token("WORD", query[start:i], start, i))
++    return tokens
++
++
++def _extract_operator(text):
++    for op in _OPERATORS:
++        if text.startswith(op):
++            return op, text[len(op):]
++    raise ValueError("bad operator")
++
++
++def _compare(operator, left, right):
++    if operator == "<":
++        return left < right
++    if operator == "<=":
++        return left <= right
++    if operator == ">":
++        return left > right
++    if operator == ">=":
++        return left >= right
++    return left == right
++
++
++def _field_matcher(field, value):
++    needle = value.lower()
++    if field == "category":
++        return lambda tx: tx.category.lower() == needle
++    if field == "tag":
++        return lambda tx: any(tag.lower() == needle for tag in tx.tags)
++    return lambda tx: needle in tx.description.lower()
++
++
++def _and(left, right):
++    return lambda tx: left(tx) and right(tx)
++
++
++def _or(left, right):
++    return lambda tx: left(tx) or right(tx)
++
++
++def _not(operand):
++    return lambda tx: not operand(tx)
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        if self.pos < len(self.tokens):
++            return self.tokens[self.pos]
++        return None
++
++    def advance(self):
++        token = self.tokens[self.pos]
++        self.pos += 1
++        return token
++
++    def parse(self):
++        if not self.tokens:
++            return lambda tx: True
++        node = self._parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError("unexpected token")
++        return node
++
++    def _parse_or(self):
++        node = self._parse_and()
++        while True:
++            token = self.peek()
++            if token is not None and token.kind == "WORD" and token.value.upper() == "OR":
++                self.advance()
++                node = _or(node, self._parse_and())
++            else:
++                break
++        return node
++
++    def _parse_and(self):
++        node = self._parse_not()
++        while True:
++            token = self.peek()
++            if token is None or token.kind == "RPAREN":
++                break
++            if token.kind == "WORD" and token.value.upper() == "OR":
++                break
++            if token.kind == "WORD" and token.value.upper() == "AND":
++                self.advance()
++                node = _and(node, self._parse_not())
++                continue
++            if token.kind in ("LPAREN", "WORD"):
++                node = _and(node, self._parse_not())
++                continue
++            raise ValueError("unexpected token")
++        return node
++
++    def _parse_not(self):
++        token = self.peek()
++        if token is not None and token.kind == "WORD" and token.value.upper() == "NOT":
++            self.advance()
++            return _not(self._parse_not())
++        return self._parse_primary()
++
++    def _parse_primary(self):
++        token = self.peek()
++        if token is None:
++            raise ValueError("missing operand")
++        if token.kind == "LPAREN":
++            self.advance()
++            if self.peek() is not None and self.peek().kind == "RPAREN":
++                raise ValueError("empty group")
++            node = self._parse_or()
++            token = self.peek()
++            if token is None or token.kind != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.advance()
++            return node
++        if token.kind == "WORD":
++            return self._parse_term()
++        raise ValueError("unexpected token")
++
++    def _parse_term(self):
++        token = self.advance()
++        word = token.value
++
++        if ":" in word:
++            field, _, value = word.partition(":")
++            if field not in _FIELDS:
++                raise ValueError(f"unknown field: {field}")
++            if value == "":
++                following = self.peek()
++                if (following is not None and following.kind == "QUOTED"
++                        and following.start == token.end):
++                    value = following.value
++                    self.advance()
++                else:
++                    raise ValueError("missing value")
++            else:
++                following = self.peek()
++                if (following is not None and following.kind == "QUOTED"
++                        and following.start == token.end):
++                    raise ValueError("invalid value")
++            return _field_matcher(field, value)
++
++        return self._parse_comparison(word, token)
++
++    def _parse_comparison(self, word, token):
++        if word in ("amount", "date"):
++            field = word
++            rest = ""
++        elif word.startswith("amount") and len(word) > len("amount") and word[len("amount")] in "<>=":
++            field = "amount"
++            rest = word[len("amount"):]
++        elif word.startswith("date") and len(word) > len("date") and word[len("date")] in "<>=":
++            field = "date"
++            rest = word[len("date"):]
++        else:
++            raise ValueError(f"invalid term: {word}")
++
++        if rest == "":
++            following = self.peek()
++            if following is None or following.kind != "WORD":
++                raise ValueError("missing operator")
++            operator, rest = _extract_operator(following.value)
++            self.advance()
++        else:
++            operator, rest = _extract_operator(rest)
++
++        if rest == "":
++            following = self.peek()
++            if following is None or following.kind != "WORD":
++                raise ValueError(f"missing {field}")
++            value = following.value
++            self.advance()
++        else:
++            value = rest
++
++        if field == "amount":
++            if not _NUMBER_RE.match(value):
++                raise ValueError(f"invalid number: {value}")
++            try:
++                number = Decimal(value)
++            except InvalidOperation:
++                raise ValueError(f"invalid number: {value}") from None
++            return lambda tx: _compare(operator, tx.amount.amount, number)
++
++        if not _DATE_RE.match(value):
++            raise ValueError(f"invalid date: {value}")
++        try:
++            day = date.fromisoformat(value)
++        except ValueError:
++            raise ValueError(f"invalid date: {value}") from None
++        return lambda tx: _compare(operator, tx.date, day)
++
++
++def compile_query(query):
++    """Compile a query string into a predicate over transactions."""
++    return _Parser(_tokenize(query)).parse()
+diff --git a/tests/test_search.py b/tests/test_search.py
+new file mode 100644
+index 0000000..64e0faa
+--- /dev/null
++++ b/tests/test_search.py
+@@ -0,0 +1,83 @@
++from datetime import date
++import pytest
++
++from ledger import Ledger, Money, Transaction
++
++
++def make_ledger():
++    return Ledger([
++        Transaction(date(2026, 1, 3), "Coffee Shop", Money("-4.50"), "food", ("morning", "work")),
++        Transaction(date(2026, 1, 15), "Salary", Money("3000.00"), "income"),
++        Transaction(date(2026, 2, 1), "Rent", Money("-1200.00"), "housing", ("fixed", "monthly")),
++        Transaction(date(2026, 2, 2), "coffee beans", Money("-15.00"), "food", ("morning",)),
++    ])
++
++
++def descriptions(ledger, query):
++    return [tx.description for tx in ledger.search(query)]
++
++
++def test_empty_query_matches_everything():
++    l = make_ledger()
++    assert l.search("") == l.transactions
++    assert l.search("   ") == l.transactions
++
++
++def test_fields_are_case_insensitive():
++    l = make_ledger()
++    assert descriptions(l, "category:FOOD") == ["Coffee Shop", "coffee beans"]
++    assert descriptions(l, "tag:WORK") == ["Coffee Shop"]
++    assert descriptions(l, "desc:COFFEE") == ["Coffee Shop", "coffee beans"]
++
++
++def test_quoted_values_and_escapes():
++    l = Ledger([
++        Transaction(date(2026, 1, 1), 'say "hi" (coffee)', Money("1"), "food"),
++        Transaction(date(2026, 1, 2), "a\\b", Money("2"), "food"),
++    ])
++    assert descriptions(l, 'desc:"say \\"hi\\" (coffee)"') == ['say "hi" (coffee)']
++    assert descriptions(l, 'desc:"a\\\\b"') == ["a\\b"]
++
++
++def test_amount_and_date_comparisons():
++    l = make_ledger()
++    assert descriptions(l, "amount<-20") == ["Rent"]
++    assert descriptions(l, "amount < -20") == ["Rent"]
++    assert descriptions(l, "amount>=10.50") == ["Salary"]
++    assert descriptions(l, "date>=2026-01-15") == ["Salary", "Rent", "coffee beans"]
++
++
++def test_boolean_precedence_and_implicit_and():
++    l = make_ledger()
++    assert descriptions(l, "category:food NOT tag:work") == ["coffee beans"]
++    assert descriptions(l, "NOT category:food") == ["Salary", "Rent"]
++    assert descriptions(l, "category:food OR category:income") == [
++        "Coffee Shop", "Salary", "coffee beans",
++    ]
++    assert descriptions(l, "(category:food OR category:housing) amount<-5") == [
++        "Rent", "coffee beans",
++    ]
++
++
++@pytest.mark.parametrize("query", [
++    "foo:bar",
++    "(category:food",
++    "category:food)",
++    "()",
++    "( )",
++    "category:food AND",
++    "OR tag:x",
++    "NOT",
++    "amount<",
++    "amount<abc",
++    "amount<1.2.3",
++    "amount!=5",
++    "date>=2026-13-01",
++    "date>=2026-1-1",
++    'desc:"unterminated',
++    "desc:",
++    'desc: "spaced"',
++])
++def test_malformed_queries_raise(query):
++    with pytest.raises(ValueError):
++        make_ledger().search(query)

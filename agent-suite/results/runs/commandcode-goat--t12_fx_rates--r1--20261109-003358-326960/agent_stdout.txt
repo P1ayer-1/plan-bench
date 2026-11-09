@@ -1,0 +1,3 @@
+Implemented `ledger/fx.py` with `RateTable` and `convert`, plus `Ledger.balance_in`. Rates are stored as exact `Decimal`s, support inverse and USD-cross conversion, and conversions round to cents only once.
+
+`python -m pytest -q` → **4 passed**.

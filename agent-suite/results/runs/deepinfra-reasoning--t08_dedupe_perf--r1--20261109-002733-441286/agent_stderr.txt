@@ -1,0 +1,88 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mpwd && ls -la && find . -maxdepth 3 -type f | head -100
+/suite/results/runs/deepinfra-reasoning--t08_dedupe_perf--r1--20261109-002733-441286/ws
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:27 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:27 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 673 Nov  9 00:27 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./.git/hooks/pre-commit.sample
+./.git/hooks/pre-receive.sample
+./.git/hooks/push-to-checkout.sample
+./.git/hooks/fsmonitor-watchman.sample
+./.git/hooks/pre-push.sample
+./.git/hooks/pre-rebase.sample
+./.git/hooks/prepare-commit-msg.sample
+./.git/hooks/applypatch-msg.sample
+./.git/hooks/update.sample
+./.git/hooks/pre-applypatch.sample
+./.git/hooks/pre-merge-commit.sample
+./.git/hooks/commit-msg.sample
+./.git/hooks/post-update.sample
+./.git/description
+./.git/info/exclude
+./.git/HEAD
+./.git/config
+./.git/index
+./.git/COMMIT_EDITMSG
+./.git/logs/HEAD
+./.git/opencode
+./opencode.json
+[0m
+[0m→ [0mRead README.md
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t08_dedupe_perf--r1--20261109-002733-441286/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t08_dedupe_perf--r1--20261109-002733-441286/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t08_dedupe_perf--r1--20261109-002733-441286/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython - <<'PY'
+import time
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+
+base = date(2020,1,1)
+txs = [Transaction(base + timedelta(days=i % 1000), f"desc {i % 5000}", Money(f"{(i % 1000)/100:.2f}"), "cat") for i in range(200000)]
+l = Ledger(txs)
+s = time.perf_counter(); r = l.dedupe(); e = time.perf_counter()
+print(len(l.transactions), f"{e-s:.3f}s", r is l)
+PY
+5000 0.163s True
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 2.82s
+[0m

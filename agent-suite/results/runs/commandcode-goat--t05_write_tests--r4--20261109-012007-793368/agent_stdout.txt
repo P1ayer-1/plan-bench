@@ -1,0 +1,4 @@
+I'll start by exploring the codebase to understand the functions.
+Created `tests/test_report.py` with 30 tests covering month grouping/sorting, zero-padding, year boundaries, per-category sums, sign handling, cents precision, currency preservation, expense filtering/sorting, `n` trimming, tie order, and non-mutation.
+
+`python -m pytest -q` → **30 passed**. No changes made to `ledger/`.

@@ -1,0 +1,61 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -R . | head -50; grep -rn "def split" .
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m$ [0mgrep -n "split" tests/test_basic.py README.md
+(no output)
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r4--20261109-011551-443878/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r4--20261109-011551-443878/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r4--20261109-011551-443878/ws/ledger/money.py
+@@ -37,11 +37,19 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts that sum exactly to this amount."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    total_cents = int((self.amount / CENT).to_integral_value())
++    base, remainder = divmod(abs(total_cents), n)
++    sign = -1 if total_cents < 0 else 1
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < remainder else 0)
++        parts.append(Money(sign * cents * CENT, self.currency))
++    return parts
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.50s
+[0m

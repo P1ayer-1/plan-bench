@@ -1,0 +1,10 @@
+I'll explore the codebase first.
+Implemented all changes:
+
+- `ledger/money.py`: added `CurrencyMismatch(ValueError)`; `__add__`, `__sub__`, `__lt__` now raise it on currency mismatch.
+- `Ledger.balance()` returns `{currency: Money}`, empty ledger returns `{}`.
+- `monthly_summary` uses `(category, currency)` keys only for months with multiple currencies.
+- CLI formats mixed-currency keys as `category (currency)`.
+- Exported `CurrencyMismatch`; updated and added tests.
+
+`python -m pytest -q` → 8 passed.

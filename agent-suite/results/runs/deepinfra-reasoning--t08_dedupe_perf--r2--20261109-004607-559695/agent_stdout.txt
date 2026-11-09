@@ -1,0 +1,1 @@
+Done. Replaced the O(n²) list lookup in `Ledger.dedupe()` with a `set` of seen keys (`ledger/ledger.py:36`). All 4 tests pass; 200k transactions dedupe in ~0.52s while preserving order and first occurrences.

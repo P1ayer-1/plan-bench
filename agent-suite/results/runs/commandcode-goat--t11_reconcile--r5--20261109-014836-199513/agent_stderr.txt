@@ -1,0 +1,433 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -type f -not -path './.git/*' | head -100
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:48 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:48 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  9 01:48 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m$ [0mcat README.md; echo ===; for f in ledger/*.py tests/*.py; do echo ---$f; cat "$f"; done
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+===
+---ledger/__init__.py
+from .money import Money
+from .ledger import Ledger, Transaction
+---ledger/cli.py
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+---ledger/ledger.py
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+---ledger/money.py
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+---ledger/parser.py
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+---ledger/report.py
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+---tests/test_basic.py
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m← [0mWrite ledger/reconcile.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
++++ /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .reconcile import Reconciliation, reconcile
+
+[0m
+[0m$ [0mpython - <<'PY'
+import itertools, random
+from datetime import date, timedelta
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile
+
+def brute(ls, bs, max_days):
+    # enumerate all matchings via recursion
+    best = None
+    n=len(ls); m=len(bs)
+    def rec(i, used_b, pairs):
+        nonlocal best
+        if i==n:
+            # score
+            score=(len(pairs), sum(abs((ls[a].date-bs[b].date).days) for a,b in pairs))
+            if best is None or score[0]>best[0] or (score[0]==best[0] and score[1]<best[1]):
+                best=(score[0],score[1],list(pairs))
+            return
+        # skip ledger i
+        rec(i+1, used_b, pairs)
+        for j,b in enumerate(bs):
+            if j in used_b: continue
+            if ls[i].amount==b.amount and abs((ls[i].date-b.date).days)<=max_days:
+                used_b.add(j); pairs.append((i,j))
+                rec(i+1, used_b, pairs)
+                pairs.pop(); used_b.remove(j)
+    rec(0,set(),[])
+    return best
+
+random.seed(0)
+for trial in range(500):
+    n=random.randint(0,5); m=random.randint(0,5)
+    base=date(2026,1,1)
+    amounts=[Money(random.choice(['1','2','3'])) for _ in range(6)]
+    ls=[Transaction(base+timedelta(days=random.randint(0,6)), 'l', random.choice(amounts), 'x') for _ in range(n)]
+    bs=[Transaction(base+timedelta(days=random.randint(0,6)), 'b', random.choice(amounts), 'y') for _ in range(m)]
+    md=random.randint(0,4)
+    r=reconcile(ls,bs,md)
+    b=brute(ls,bs,md)
+    got=(len(r.matched), sum(abs((a.date-c.date).days) for a,c in r.matched))
+    if b is None:
+        exp=(0,0)
+    else:
+        exp=(b[0],b[1])
+    if got!=exp:
+        print('MISMATCH',trial,n,m,md,got,exp)
+        print('L',[(x.date,x.amount) for x in ls])
+        print('B',[(x.date,x.amount) for x in bs])
+        break
+else:
+    print('all brute-force ok')
+PY
+all brute-force ok
+[0m
+[0m$ [0mpython - <<'PY'
+import random, time
+from datetime import date, timedelta
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile
+random.seed(1)
+base=date(2026,1,1)
+amounts=[Money(f'{i}.00') for i in range(40)]
+ls=[Transaction(base+timedelta(days=random.randint(0,365)), 'l', random.choice(amounts), 'x') for _ in range(4000)]
+bs=[Transaction(base+timedelta(days=random.randint(0,365)), 'b', random.choice(amounts), 'y') for _ in range(4000)]
+t=time.time(); r=reconcile(ls,bs); print('time',time.time()-t,'matched',len(r.matched))
+# dense hard case, all same amount max 100 per side but use all amounts permit; construct 100 per amount with dates clustered
+ls=[]; bs=[]
+for amt in amounts:
+    for _ in range(100):
+        ls.append(Transaction(base+timedelta(days=random.randint(0,30)),'l',amt,'x'))
+        bs.append(Transaction(base+timedelta(days=random.randint(0,30)),'b',amt,'y'))
+t=time.time(); r=reconcile(ls,bs); print('dense time',time.time()-t,'matched',len(r.matched))
+PY
+time 0.2904477119445801 matched 2611
+dense time 1.2499916553497314 matched 3930
+[0m
+[0m$ [0mpython - <<'PY'
+import ledger.reconcile as rc
+print(type(rc), rc)
+from ledger.reconcile import reconcile, Reconciliation
+print(reconcile, Reconciliation)
+try:
+    import ledger.reconcile
+    print('attr', type(ledger.reconcile))
+except Exception as e:
+    print(e)
+PY
+<class 'function'> <function reconcile at 0x7401e6812700>
+<function reconcile at 0x7401e6812700> <class 'ledger.reconcile.Reconciliation'>
+attr <class 'function'>
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
++++ /suite/results/runs/commandcode-goat--t11_reconcile--r5--20261109-014836-199513/ws/ledger/__init__.py
+@@ -1,3 +1,2 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
+-from .reconcile import Reconciliation, reconcile
+
+[0m
+[0m$ [0mcat > tests/test_reconcile.py <<'PY'
+from datetime import date, timedelta
+
+from ledger.ledger import Transaction
+from ledger.money import Money
+from ledger.reconcile import Reconciliation, reconcile
+
+
+def tx(day, amount, description="x"):
+    return Transaction(date(2026, 1, 1) + timedelta(days=day), description, Money(amount), "test")
+
+
+def test_reconcile_matches_by_amount_and_nearby_date():
+    ledger_txs = [tx(0, "10"), tx(30, "20"), tx(40, "10")]
+    bank_txs = [tx(2, "10"), tx(31, "20")]
+
+    result = reconcile(ledger_txs, bank_txs)
+
+    assert isinstance(result, Reconciliation)
+    assert result.matched == [(ledger_txs[0], bank_txs[0]), (ledger_txs[1], bank_txs[1])]
+    assert result.unmatched_ledger == [ledger_txs[2]]
+    assert result.unmatched_bank == []
+
+
+def test_reconcile_prefers_maximum_pairs_then_minimum_distance():
+    ledger_txs = [tx(0, "10"), tx(5, "10")]
+    bank_txs = [tx(1, "10"), tx(4, "10")]
+
+    result = reconcile(ledger_txs, bank_txs, max_days=10)
+
+    assert len(result.matched) == 2
+    assert sum(abs((a.date - b.date).days) for a, b in result.matched) == 2
+
+
+def test_reconcile_treats_duplicates_as_separate_transactions():
+    ledger_txs = [tx(0, "10", "same"), tx(0, "10", "same")]
+    bank_txs = [tx(0, "10", "same")]
+
+    result = reconcile(ledger_txs, bank_txs)
+
+    assert len(result.matched) == 1
+    assert result.unmatched_ledger == [ledger_txs[1]]
+    assert result.unmatched_bank == []
+
+
+def test_reconcile_respects_currency_and_date_window():
+    ledger_txs = [tx(0, "10")]
+    bank_txs = [Transaction(date(2026, 1, 2), "x", Money("10", "EUR"), "test"), tx(4, "10")]
+
+    result = reconcile(ledger_txs, bank_txs, max_days=3)
+
+    assert result.matched == []
+    assert result.unmatched_ledger == ledger_txs
+    assert result.unmatched_bank == bank_txs
+
+
+def test_reconcile_empty_inputs():
+    result = reconcile([], [])
+
+    assert result == Reconciliation([], [], [])
+PY
+python -m pytest -q
+.........                                                                [100%]
+9 passed in 19.74s
+[0m
+[0m$ [0mtime python -m pytest -q
+.........                                                                [100%]
+9 passed in 0.26s
+
+real	0m0.447s
+user	0m0.127s
+sys	0m0.034s
+[0m
+[0m$ [0mgit status --short && git diff --stat
+?? ledger/reconcile.py
+?? tests/test_reconcile.py
+[0m

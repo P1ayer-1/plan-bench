@@ -1,0 +1,1 @@
+Done. `Ledger.query()` now accepts `tag`, and `Ledger.tags()` returns sorted distinct tags. All 4 existing tests pass.

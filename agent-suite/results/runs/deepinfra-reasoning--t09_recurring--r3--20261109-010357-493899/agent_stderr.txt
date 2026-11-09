@@ -1,0 +1,268 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | sort
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+[0m
+[0m$ [0mcat ledger/__init__.py; echo "=== money ==="; cat ledger/money.py; echo "=== ledger ==="; cat ledger/ledger.py; echo "=== tests ==="; cat tests/test_basic.py
+from .money import Money
+from .ledger import Ledger, Transaction
+=== money ===
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+=== ledger ===
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+=== tests ===
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m$ [0mpython --version && cat README.md
+Python 3.11.2
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m← [0mWrite ledger/recurring.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/ledger.py
+@@ -37,8 +37,15 @@
+     for tx in self.transactions:
+         total = total + tx.amount
+     return total
+ 
++def add_recurring(self, rule, window_start, window_end):
++    from .recurring import expand
++
++    transactions = expand(rule, window_start, window_end)
++    self.transactions.extend(transactions)
++    return len(transactions)
++
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
+     result = []
+
+[0m
+[0m$ [0mgrep -n "add_recurring" ledger/ledger.py; ls ledger
+41:    def add_recurring(self, rule, window_start, window_end):
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+recurring.py
+report.py
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/__init__.py
++++ /suite/results/runs/deepinfra-reasoning--t09_recurring--r3--20261109-010357-493899/ws/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .recurring import Recurrence, expand, occurrences
+
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from ledger import Money, Ledger
+from ledger.recurring import Recurrence, occurrences, expand
+
+def r(**kw):
+    base=dict(description='x', amount=Money('1'), category='c', start=date(2026,1,31), freq='monthly')
+    base.update(kw); return Recurrence(**base)
+
+print(occurrences(r(), date(2026,1,1), date(2026,5,31)))
+print(occurrences(r(start=date(2024,2,29), freq='yearly'), date(2024,1,1), date(2027,12,31)))
+print(occurrences(r(freq='weekly', start=date(2026,1,1), count=5), date(2026,1,1), date(2026,12,31)))
+print(occurrences(r(freq='weekly', start=date(2026,1,1), count=5, skip=(date(2026,1,8),)), date(2026,1,1), date(2026,12,31)))
+print(occurrences(r(freq='weekly', start=date(2026,1,1), until=date(2026,1,15)), date(2025,1,1), date(2026,12,31)))
+print(occurrences(r(freq='weekly', start=date(2026,1,1), count=100, until=date(2026,1,15)), date(2025,1,1), date(2026,12,31)))
+print(occurrences(r(start=date(2026,3,31)), date(2026,1,1), date(2026,2,28)))
+for bad in [r(freq='daily'), r(interval=0), r(count=-1)]:
+    try: occurrences(bad, date(2026,1,1), date(2026,12,31))
+    except ValueError as e: print('ValueError', e)
+l=Ledger(); n=l.add_recurring(r(freq='monthly', count=3), date(2026,1,1), date(2026,12,31)); print(n, [t.date for t in l.transactions], l.transactions[0].tags)
+PY
+[datetime.date(2026, 1, 31), datetime.date(2026, 2, 28), datetime.date(2026, 3, 31), datetime.date(2026, 4, 30), datetime.date(2026, 5, 31)]
+[datetime.date(2024, 2, 29), datetime.date(2025, 2, 28), datetime.date(2026, 2, 28), datetime.date(2027, 2, 28)]
+[datetime.date(2026, 1, 1), datetime.date(2026, 1, 8), datetime.date(2026, 1, 15), datetime.date(2026, 1, 22), datetime.date(2026, 1, 29)]
+[datetime.date(2026, 1, 1), datetime.date(2026, 1, 15), datetime.date(2026, 1, 22), datetime.date(2026, 1, 29)]
+[datetime.date(2026, 1, 1), datetime.date(2026, 1, 8), datetime.date(2026, 1, 15)]
+[datetime.date(2026, 1, 1), datetime.date(2026, 1, 8), datetime.date(2026, 1, 15)]
+[]
+ValueError invalid frequency: 'daily'
+ValueError interval must be at least 1
+ValueError count must not be negative
+3 [datetime.date(2026, 1, 31), datetime.date(2026, 2, 28), datetime.date(2026, 3, 31)] ('recurring',)
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 1.87s
+[0m
+[0m$ [0msed -n '35,55p' ledger/ledger.py; cat ledger/__init__.py
+def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def add_recurring(self, rule, window_start, window_end):
+        from .recurring import expand
+
+        transactions = expand(rule, window_start, window_end)
+        self.transactions.extend(transactions)
+        return len(transactions)
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+from .money import Money
+from .ledger import Ledger, Transaction
+from .recurring import Recurrence, expand, occurrences
+[0m

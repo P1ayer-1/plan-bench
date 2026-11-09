@@ -1,0 +1,2 @@
+Doubled-quote case works; the earlier failure was just a 4-field row (correctly rejected). Verify with proper tags:
+Fixed `ledger/parser.py`: hand-rolled CSV row parser handles quoted commas and `""` escapes, CRLF via `splitlines()`, optional missing `tags` column, and field-count errors reporting 1-based line numbers. `python -m pytest -q` passes (4 passed).

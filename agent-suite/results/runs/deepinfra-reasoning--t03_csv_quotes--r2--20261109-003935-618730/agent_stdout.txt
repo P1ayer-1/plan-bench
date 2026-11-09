@@ -1,0 +1,3 @@
+Implemented CSV quoting support in `ledger/parser.py`, including doubled quotes, Windows line endings, optional missing `tags`, and line-numbered `ValueError` for bad field counts.
+
+`python -m pytest -q`: 4 passed.

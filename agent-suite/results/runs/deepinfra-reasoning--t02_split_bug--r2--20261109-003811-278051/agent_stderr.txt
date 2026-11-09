@@ -1,0 +1,93 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -maxdepth 2 -type f | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:38 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:38 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 671 Nov  9 00:38 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./.git/description
+./.git/HEAD
+./.git/config
+./.git/index
+./.git/COMMIT_EDITMSG
+./.git/opencode
+./opencode.json
+[0m
+[0m✱ [0mGlob "**/*.py"[90m 7 matches[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra-reasoning--t02_split_bug--r2--20261109-003811-278051/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t02_split_bug--r2--20261109-003811-278051/ws/ledger/money.py
++++ /suite/results/runs/deepinfra-reasoning--t02_split_bug--r2--20261109-003811-278051/ws/ledger/money.py
+@@ -37,11 +37,21 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts, summing exactly to this amount."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
+ 
++    total_cents = int((self.amount / CENT).to_integral_value())
++    sign = -1 if total_cents < 0 else 1
++    base, remainder = divmod(abs(total_cents), n)
++
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < remainder else 0)
++        parts.append(Money(sign * cents * CENT, self.currency))
++    return parts
++
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+from ledger import Money
+for a,n in [("10.00",3),("-10.00",3),("0.05",2),("-0.05",2),("0.00",3)]:
+    p=Money(a).split(n)
+    print(a,n,[str(x) for x in p], sum(p)==Money(a))
+PY
+....                                                                     [100%]
+4 passed in 0.73s
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+TypeError: unsupported operand type(s) for +: 'int' and 'Money'
+[0m
+[0m$ [0mpython - <<'PY'
+from ledger import Money
+for a,n in [("10.00",3),("-10.00",3),("0.05",2),("-0.05",2),("0.00",3)]:
+    m=Money(a); p=m.split(n)
+    print(a,n,[str(x) for x in p], sum(p, Money.zero())==m)
+for n in (0,-1):
+    try: Money("1").split(n)
+    except ValueError as e: print("ValueError", n)
+PY
+10.00 3 ['3.34 USD', '3.33 USD', '3.33 USD'] True
+-10.00 3 ['-3.34 USD', '-3.33 USD', '-3.33 USD'] True
+0.05 2 ['0.03 USD', '0.02 USD'] True
+-0.05 2 ['-0.03 USD', '-0.02 USD'] True
+0.00 3 ['0.00 USD', '0.00 USD', '0.00 USD'] True
+ValueError 0
+ValueError -1
+[0m

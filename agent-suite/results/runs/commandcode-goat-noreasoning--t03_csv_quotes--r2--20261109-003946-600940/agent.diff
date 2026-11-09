@@ -1,0 +1,71 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..24eff1c 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -5,18 +5,62 @@ from .ledger import Transaction
+ HEADER = ["date", "description", "amount", "category", "tags"]
+ 
+ 
++def _split(line):
++    fields = []
++    i = 0
++    n = len(line)
++    while True:
++        if i < n and line[i] == '"':
++            i += 1
++            buf = []
++            while i < n:
++                if line[i] == '"':
++                    if i + 1 < n and line[i + 1] == '"':
++                        buf.append('"')
++                        i += 2
++                        continue
++                    i += 1
++                    break
++                buf.append(line[i])
++                i += 1
++            while i < n and line[i] in " \t":
++                i += 1
++            if i < n and line[i] == ",":
++                i += 1
++                fields.append("".join(buf))
++                continue
++            if i >= n:
++                fields.append("".join(buf))
++                break
++            raise ValueError(f"unexpected character at position {i}")
++        start = i
++        while i < n and line[i] != ",":
++            i += 1
++        fields.append(line[start:i])
++        if i >= n:
++            break
++        i += 1
++    return fields
++
++
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+     tags are separated by ';'. Returns a list of Transaction."""
+-    lines = [l for l in text.strip().splitlines() if l.strip()]
++    lines = [l for l in text.splitlines() if l.strip()]
+     if not lines:
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
++    header = [h.strip() for h in _split(lines[0])]
+     if header != HEADER:
+         raise ValueError(f"bad header: {header}")
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    for offset, line in enumerate(lines[1:], start=2):
++        fields = _split(line)
++        if len(fields) == 4:
++            fields.append("")
++        if len(fields) != 5:
++            raise ValueError(
++                f"line {offset}: expected 5 fields, got {len(fields)}")
++        d, desc, amt, cat, tags = fields
+         out.append(Transaction(
+             date=date.fromisoformat(d.strip()),
+             description=desc.strip(),

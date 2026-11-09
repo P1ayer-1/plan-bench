@@ -1,0 +1,1 @@
+Implemented `tag` filtering in `Ledger.query()` and added `Ledger.tags()` in `ledger/ledger.py:19`. All 4 existing tests pass.

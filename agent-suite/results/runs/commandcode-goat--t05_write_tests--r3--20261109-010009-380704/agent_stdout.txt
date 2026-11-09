@@ -1,0 +1,1 @@
+Wrote `tests/test_report.py` with 29 passing tests covering month grouping/sorting/zero-padding, sums, mixed signs, zero amounts, currencies, exclusion rules, ordering, `n` handling, tie stability, and non-mutation. `python -m pytest -q` → 29 passed.

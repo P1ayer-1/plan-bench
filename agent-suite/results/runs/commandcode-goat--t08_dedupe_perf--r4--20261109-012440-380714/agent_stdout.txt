@@ -1,0 +1,3 @@
+`Ledger.dedupe()` now uses a hash set for O(n) lookups instead of rebuilding a list per transaction.
+
+All 4 tests pass; benchmark of 200,000 transactions runs in ~0.86s.

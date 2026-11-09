@@ -1,0 +1,1 @@
+Done. `balance` added to `ledger/cli.py` with inclusive filters, `Balance: 0.00 USD` fallback, and exit 2 on invalid dates. All 4 tests pass.

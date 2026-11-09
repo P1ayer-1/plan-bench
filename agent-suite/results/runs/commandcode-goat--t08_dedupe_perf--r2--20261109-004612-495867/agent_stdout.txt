@@ -1,0 +1,1 @@
+Replaced the O(n²) membership scan with a `set` keyed by `(date, description, amount)`. Same first-occurrence/order/return semantics; 200k dedupe runs in ~0.45s. All 4 tests pass.

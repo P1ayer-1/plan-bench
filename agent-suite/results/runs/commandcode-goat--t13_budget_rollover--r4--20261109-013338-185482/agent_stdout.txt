@@ -1,0 +1,2 @@
+I'll explore the codebase first to understand the existing patterns.
+Implemented `ledger/budget.py` with `budget_report`, including month validation, per-category spending, rollover with optional cap, and currency checks. All existing tests pass (`4 passed`).

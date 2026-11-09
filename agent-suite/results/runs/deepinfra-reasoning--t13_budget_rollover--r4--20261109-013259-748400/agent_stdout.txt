@@ -1,0 +1,4 @@
+I'll explore the codebase to understand the existing structure and conventions.
+Added `ledger/budget.py` with `budget_report`, including month validation, per-month rows, rollover clamping, refund handling, and currency checks. Also exported it from `ledger/__init__.py`.
+
+`python -m pytest -q` passes: 4 passed.

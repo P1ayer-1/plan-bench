@@ -1,0 +1,149 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..abbefc5
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,143 @@
++"""Bank-statement reconciliation.
++
++Pair ledger transactions with bank transactions.  A pair is allowed when the
++amounts are identical (including currency) and the dates are no more than
++``max_days`` apart.  Pairings maximise the number of pairs first, then
++minimise the total date distance.
++"""
++
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _better(first, second):
++    """Choose the better (pair_count, total_distance) result."""
++    if second[0] > first[0]:
++        return second
++    if second[0] == first[0] and second[1] < first[1]:
++        return second
++    return first
++
++
++def _match_group(ledger_group, bank_group, max_days):
++    """Return ``(ledger_index, bank_index)`` pairs for one amount group.
++
++    An optimal matching can always be chosen so that pairs do not cross when
++    both sides are ordered by date: if two pairs cross, swapping their bank
++    transactions keeps both pairs valid and cannot increase the total distance.
++    This reduces the problem to a sequence-alignment dynamic program.
++    """
++    if not ledger_group or not bank_group:
++        return []
++
++    ledger = sorted(
++        ((tx.date, index) for index, tx in ledger_group),
++        key=lambda item: item[0],
++    )
++    bank = sorted(
++        ((tx.date, index) for index, tx in bank_group),
++        key=lambda item: item[0],
++    )
++
++    ledger_count = len(ledger)
++    bank_count = len(bank)
++
++    dp = [[(0, 0)] * (bank_count + 1) for _ in range(ledger_count + 1)]
++    for ledger_pos in range(1, ledger_count + 1):
++        ledger_date = ledger[ledger_pos - 1][0]
++        for bank_pos in range(1, bank_count + 1):
++            best = _better(
++                dp[ledger_pos - 1][bank_pos],
++                dp[ledger_pos][bank_pos - 1],
++            )
++            distance = abs((ledger_date - bank[bank_pos - 1][0]).days)
++            if distance <= max_days:
++                previous = dp[ledger_pos - 1][bank_pos - 1]
++                best = _better(
++                    best,
++                    (previous[0] + 1, previous[1] + distance),
++                )
++            dp[ledger_pos][bank_pos] = best
++
++    pairs = []
++    ledger_pos = ledger_count
++    bank_pos = bank_count
++    while ledger_pos > 0 and bank_pos > 0:
++        distance = abs(
++            (ledger[ledger_pos - 1][0] - bank[bank_pos - 1][0]).days
++        )
++        candidate = None
++        if distance <= max_days:
++            previous = dp[ledger_pos - 1][bank_pos - 1]
++            candidate = (previous[0] + 1, previous[1] + distance)
++
++        if candidate == dp[ledger_pos][bank_pos]:
++            pairs.append(
++                (
++                    ledger[ledger_pos - 1][1],
++                    bank[bank_pos - 1][1],
++                )
++            )
++            ledger_pos -= 1
++            bank_pos -= 1
++        elif dp[ledger_pos - 1][bank_pos] == dp[ledger_pos][bank_pos]:
++            ledger_pos -= 1
++        else:
++            bank_pos -= 1
++
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3) -> Reconciliation:
++    """Reconcile ledger and bank transactions.
++
++    Returns a :class:`Reconciliation` whose ``matched`` list contains
++    ``(ledger_tx, bank_tx)`` tuples ordered by the ledger transaction's input
++    position.  ``unmatched_ledger`` and ``unmatched_bank`` preserve input order.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    groups = {}
++    for index, tx in enumerate(ledger_txs):
++        groups.setdefault(tx.amount, ([], []))[0].append((index, tx))
++    for index, tx in enumerate(bank_txs):
++        groups.setdefault(tx.amount, ([], []))[1].append((index, tx))
++
++    ledger_matched = [False] * len(ledger_txs)
++    bank_matched = [False] * len(bank_txs)
++    matched_indices = []
++
++    for ledger_group, bank_group in groups.values():
++        if not ledger_group or not bank_group:
++            continue
++        for ledger_index, bank_index in _match_group(
++            ledger_group, bank_group, max_days
++        ):
++            ledger_matched[ledger_index] = True
++            bank_matched[bank_index] = True
++            matched_indices.append((ledger_index, bank_index))
++
++    matched_indices.sort(key=lambda pair: pair[0])
++    matched = [
++        (ledger_txs[ledger_index], bank_txs[bank_index])
++        for ledger_index, bank_index in matched_indices
++    ]
++    unmatched_ledger = [
++        tx for index, tx in enumerate(ledger_txs) if not ledger_matched[index]
++    ]
++    unmatched_bank = [
++        tx for index, tx in enumerate(bank_txs) if not bank_matched[index]
++    ]
++
++    return Reconciliation(
++        matched=matched,
++        unmatched_ledger=unmatched_ledger,
++        unmatched_bank=unmatched_bank,
++    )

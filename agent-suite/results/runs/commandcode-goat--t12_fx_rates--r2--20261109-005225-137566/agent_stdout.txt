@@ -1,0 +1,1 @@
+Implemented `ledger/fx.py` with `RateTable`, `convert`, and added `Ledger.balance_in`. Rate math uses exact `Decimal` arithmetic at 28 digits, with single final rounding for balances. All 4 tests pass.

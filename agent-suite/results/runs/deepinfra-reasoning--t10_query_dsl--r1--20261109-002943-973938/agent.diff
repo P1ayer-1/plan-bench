@@ -1,0 +1,301 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..e1adf08 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import compile_query
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,11 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching the search query, in original order."""
++        matches = compile_query(query)
++        return [tx for tx in self.transactions if matches(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..4ae0702
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,271 @@
++"""Parser and evaluator for the ledger search language."""
++
++import re
++from dataclasses import dataclass
++from datetime import date
++from decimal import Decimal
++
++
++_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?\Z")
++_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
++_OPERATORS = ("<=", ">=", "<", ">", "=")
++_FIELDS = ("category", "tag", "desc")
++_COMPARISON_FIELDS = ("amount", "date")
++
++
++@dataclass(frozen=True)
++class _Token:
++    kind: str
++    value: str
++    start: int
++    end: int
++
++
++def _tokenize(query):
++    tokens = []
++    i = 0
++    n = len(query)
++    while i < n:
++        c = query[i]
++        if c.isspace():
++            i += 1
++            continue
++        if c == "(":
++            tokens.append(_Token("LPAREN", c, i, i + 1))
++            i += 1
++            continue
++        if c == ")":
++            tokens.append(_Token("RPAREN", c, i, i + 1))
++            i += 1
++            continue
++        if c == '"':
++            start = i
++            i += 1
++            chars = []
++            closed = False
++            while i < n:
++                c = query[i]
++                if c == "\\":
++                    if i + 1 < n and query[i + 1] in ('"', "\\"):
++                        chars.append(query[i + 1])
++                        i += 2
++                    else:
++                        chars.append("\\")
++                        i += 1
++                elif c == '"':
++                    i += 1
++                    closed = True
++                    break
++                else:
++                    chars.append(c)
++                    i += 1
++            if not closed:
++                raise ValueError("unterminated quote")
++            tokens.append(_Token("STRING", "".join(chars), start, i))
++            continue
++
++        start = i
++        while i < n and not query[i].isspace() and query[i] not in '()"':
++            i += 1
++        tokens.append(_Token("WORD", query[start:i], start, i))
++    return tokens
++
++
++def _compare(left, op, right):
++    if op == "<":
++        return left < right
++    if op == "<=":
++        return left <= right
++    if op == ">":
++        return left > right
++    if op == ">=":
++        return left >= right
++    return left == right
++
++
++def _field_predicate(field, value):
++    wanted = value.casefold()
++    if field == "category":
++        predicate = lambda tx: tx.category.casefold() == wanted
++    elif field == "tag":
++        predicate = lambda tx: any(tag.casefold() == wanted for tag in tx.tags)
++    else:
++        predicate = lambda tx: wanted in tx.description.casefold()
++    return ("term", predicate)
++
++
++def _comparison_field(text):
++    for field in _COMPARISON_FIELDS:
++        if text == field:
++            return field
++        if (
++            text.startswith(field)
++            and len(text) > len(field)
++            and text[len(field)] in "<>="
++        ):
++            return field
++    return None
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def _peek(self):
++        if self.pos < len(self.tokens):
++            return self.tokens[self.pos]
++        return None
++
++    def _advance(self):
++        token = self.tokens[self.pos]
++        self.pos += 1
++        return token
++
++    @staticmethod
++    def _is_keyword(token, keyword):
++        return (
++            token is not None
++            and token.kind == "WORD"
++            and token.value.upper() == keyword
++        )
++
++    def parse(self):
++        if not self.tokens:
++            return ("true",)
++        node = self._parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError("unexpected token")
++        return node
++
++    def _parse_or(self):
++        node = self._parse_and()
++        while self._is_keyword(self._peek(), "OR"):
++            self._advance()
++            node = ("or", node, self._parse_and())
++        return node
++
++    def _parse_and(self):
++        node = self._parse_unary()
++        while True:
++            token = self._peek()
++            if (
++                token is None
++                or token.kind == "RPAREN"
++                or self._is_keyword(token, "OR")
++            ):
++                break
++            if self._is_keyword(token, "AND"):
++                self._advance()
++            node = ("and", node, self._parse_unary())
++        return node
++
++    def _parse_unary(self):
++        token = self._peek()
++        if token is None:
++            raise ValueError("missing operand")
++        if self._is_keyword(token, "NOT"):
++            self._advance()
++            return ("not", self._parse_unary())
++        if token.kind == "LPAREN":
++            self._advance()
++            node = self._parse_or()
++            closing = self._peek()
++            if closing is None or closing.kind != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self._advance()
++            return node
++        if token.kind == "WORD":
++            return self._parse_term()
++        raise ValueError("malformed query")
++
++    def _parse_term(self):
++        token = self._advance()
++        text = token.value
++
++        if ":" in text:
++            field, _, rest = text.partition(":")
++            if field not in _FIELDS:
++                raise ValueError(f"unknown field: {field}")
++            if rest == "":
++                value_token = self._peek()
++                if (
++                    value_token is None
++                    or value_token.kind != "STRING"
++                    or value_token.start != token.end
++                ):
++                    raise ValueError("missing field value")
++                self._advance()
++                value = value_token.value
++            else:
++                value = rest
++            return _field_predicate(field, value)
++
++        field = _comparison_field(text)
++        if field is None:
++            raise ValueError(f"malformed term: {text}")
++        return self._parse_comparison(field, text[len(field):])
++
++    def _parse_comparison(self, field, rest):
++        op = None
++        remainder = None
++        for candidate in _OPERATORS:
++            if rest.startswith(candidate):
++                op = candidate
++                remainder = rest[len(candidate):]
++                break
++
++        if op is None:
++            if rest:
++                raise ValueError("bad operator")
++            operator_token = self._peek()
++            if operator_token is None or operator_token.kind != "WORD":
++                raise ValueError("missing operator")
++            self._advance()
++            for candidate in _OPERATORS:
++                if operator_token.value.startswith(candidate):
++                    op = candidate
++                    remainder = operator_token.value[len(candidate):]
++                    break
++            if op is None:
++                raise ValueError("bad operator")
++
++        if remainder == "":
++            value_token = self._peek()
++            if value_token is None or value_token.kind != "WORD":
++                raise ValueError("missing operand")
++            self._advance()
++            remainder = value_token.value
++
++        if field == "amount":
++            if not _NUMBER_RE.fullmatch(remainder):
++                raise ValueError(f"invalid number: {remainder}")
++            number = Decimal(remainder)
++            return ("term", lambda tx: _compare(tx.amount.amount, op, number))
++
++        if not _DATE_RE.fullmatch(remainder):
++            raise ValueError(f"invalid date: {remainder}")
++        try:
++            value = date.fromisoformat(remainder)
++        except ValueError:
++            raise ValueError(f"invalid date: {remainder}") from None
++        return ("term", lambda tx: _compare(tx.date, op, value))
++
++
++def _matches(node, tx):
++    kind = node[0]
++    if kind == "true":
++        return True
++    if kind == "term":
++        return node[1](tx)
++    if kind == "and":
++        return _matches(node[1], tx) and _matches(node[2], tx)
++    if kind == "or":
++        return _matches(node[1], tx) or _matches(node[2], tx)
++    return not _matches(node[1], tx)
++
++
++def compile_query(query):
++    """Compile a query string into a predicate over transactions."""
++    node = _Parser(_tokenize(query)).parse()
++    return lambda tx: _matches(node, tx)

@@ -1,0 +1,104 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f -not -path './.git/*' | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:02 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:02 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  9 01:02 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead README.md
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/commandcode-goat--t07_cli_balance--r3--20261109-010238-248997/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t07_cli_balance--r3--20261109-010238-248997/ws/ledger/cli.py
++++ /suite/results/runs/commandcode-goat--t07_cli_balance--r3--20261109-010238-248997/ws/ledger/cli.py
+@@ -1,15 +1,29 @@
+ import argparse, sys
++from datetime import date
+ from .ledger import Ledger
++from .money import Money
+ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
++def _parse_date(value):
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        raise ValueError(f"invalid date: {value}")
++
++
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++    b = sub.add_parser("balance", help="balance of matching transactions")
++    b.add_argument("file")
++    b.add_argument("--since", help="include transactions on or after this date")
++    b.add_argument("--until", help="include transactions on or before this date")
++    b.add_argument("--category", help="only include this category")
+     args = ap.parse_args(argv)
+ 
+     with open(args.file) as f:
+         ledger = Ledger(parse_csv(f.read()))
+@@ -17,8 +31,21 @@
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+                 print(f"  {cat}: {total}")
++    elif args.cmd == "balance":
++        try:
++            since = _parse_date(args.since) if args.since is not None else None
++            until = _parse_date(args.until) if args.until is not None else None
++        except ValueError as exc:
++            print(f"error: {exc}", file=sys.stderr)
++            return 2
++        txs = ledger.query(category=args.category, start=since, end=until)
++        currency = txs[0].amount.currency if txs else "USD"
++        total = Money.zero(currency)
++        for tx in txs:
++            total = total + tx.amount
++        print(f"Balance: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m$ [0mpython -m pytest -q && printf 'date,description,amount,category,tags\n2026-01-03,Coffee,-4.50,food,morning\n2026-01-15,Salary,3000.00,income,\n2026-02-01,Rent,-1200.00,housing,fixed;monthly\n' > /tmp/t.csv && python -m ledger.cli balance /tmp/t.csv && python -m ledger.cli balance /tmp/t.csv --since 2026-01-15 --until 2026-02-01 && python -m ledger.cli balance /tmp/t.csv --category food && python -m ledger.cli balance /tmp/t.csv --category nope && python -m ledger.cli balance /tmp/t.csv --since 2026-13-01; echo status=$?; python -m ledger.cli summary /tmp/t.csv
+....                                                                     [100%]
+4 passed in 0.45s
+Balance: 1795.50 USD
+Balance: 1800.00 USD
+Balance: -4.50 USD
+Balance: 0.00 USD
+error: invalid date: 2026-13-01
+status=2
+2026-01
+  food: -4.50 USD
+  income: 3000.00 USD
+2026-02
+  housing: -1200.00 USD
+[0m

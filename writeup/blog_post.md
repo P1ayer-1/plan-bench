@@ -1,135 +1,156 @@
 # $10 of API credits vs a $10/month coding plan: what each buys for agentic coding
 
-*Run on November 8, 2026. Prices and promos change; check them before relying on these numbers.*
+*Measured November 8–9, 2026. Prices and promos change; check them before relying on these numbers.
+Method, tasks, harness and raw logs: [[link to repo]].*
 
-**TL;DR:** I ran the same coding agent on the same 8 tasks, 40 runs per side, against DeepSeek V4.1 Flash
-through two routes: DeepInfra's pay-as-you-go API, and Command Code's $10/month GOAT plan. Both passed
-40/40. DeepInfra charged **$0.0013 per passed task**, so $10 covers about 8,000 tasks of this size. Command Code
-used **$0.0031 of plan credit per task**, so the plan's $100 monthly allowance covers about 32,000 tasks,
-roughly 4× as many per dollar. That only holds if you actually run ~1,000 agent tasks a day: below
-roughly 8,000 tasks a month, the $10 of API credit costs less. Command Code was also slower per task (72 s vs 55 s
-median) and turned on reasoning by default.
+**TL;DR:** Same model (DeepSeek V4.1 Flash), same coding agent, same 13 tasks, through two routes: DeepInfra's
+pay-as-you-go API, and Command Code's $10/month GOAT plan. Each route ran with reasoning on and off.
+
+- **Whether reasoning is on decided quality; the route didn't.** With reasoning on, both routes passed every hard task
+  (25/25 each). With it off, they passed 19/25 and 21/25. With reasoning matched, the two routes were indistinguishable.
+- **Reasoning also made the API route cheaper.** Without it, the agent took nearly twice as many turns and
+  sometimes timed out. With reasoning on, DeepInfra cost **$0.0028 per passed task**, so $10 covers about 3,500 tasks.
+- **The plan buys more, if you use it.** Command Code used $0.0083 of plan credit per passed task, which
+  works out to roughly 12,000 tasks a month for $10. Its peak-hour pricing (2×) applied to over half
+  the run. Off-peak, the same work would be about 19,000 tasks.
+- **Break-even is about 120 passed agent tasks a day.** Below that, $10 of API credit costs less and lasts longer than
+  a month. Neither route hit a cap, a rate limit, or a malformed tool call in 2,863 requests.
 
 ## The question
 
-Command Code's GOAT plan costs $10 a month and advertises up to $100 of DeepSeek V4.1 Flash usage. The
-alternative is to put $10 straight onto an inference provider and pay per token. "10× the value" only
-counts if you can use it, so I measured what each route delivers for agentic coding:
-tasks passed, cost per task, speed, and whether any limit kicks in.
+Command Code's GOAT plan costs $10 a month and advertises up to $100 of DeepSeek V4.1 Flash usage. The alternative
+is to put $10 straight onto an inference provider and pay per token. "10× the value" only counts if you can use it,
+and "same model" only means something if both routes behave the same. So I measured what each route delivers for
+agentic coding: tasks passed, cost per passed task, speed, reliability, and whether the plan's limits kick in.
 
 ## Setup
 
-- **Model:** DeepSeek V4.1 Flash on both. DeepInfra serves the Oct 17 snapshot
-  (`deepseek-ai/DeepSeek-V4.1-Flash-1017`). Command Code serves `deepseek/deepseek-v4.1-flash`, labelled
-  "latest", and never reports a snapshot date, so I couldn't confirm it's the same weights.
-- **Pay-as-you-go: DeepInfra, direct.** On the run date it had a 51% promo: $0.098 / $0.294 / $0.00294
-  per million tokens (input / output / cached input), down from $0.20 / $0.60 / $0.006. OpenRouter routed to
-  DeepInfra charges the same per token, plus a fee when you buy credits, so going direct is the cheaper way
-  to spend $10 on API credit.
-- **Subscription: Command Code GOAT**, $10/month. For DeepSeek V4.1 Flash it includes up to $100 of usage
-  a month, at most $20 in any 5 hours and $50 in any 7 days. Usage is charged at $0.15 / $0.60 / $0.003
-  per million tokens, doubled in weekday peak hours (01–04 and 06–10 UTC). The whole run fell on a Sunday
-  evening (UTC), so every request was off-peak.
-- **Agent:** opencode 1.19.5, run unattended (`opencode run --auto`) in a Docker container, with
-  identical configuration on both sides. A logging proxy sat between the agent and each API and recorded every
-  request's tokens, cache hits, latency, tool calls and errors.
-- **Tasks:** 8 tasks on a small Python personal-finance library: a feature, two bug fixes, a refactor,
-  writing tests (graded by how many planted bugs the tests catch), a multi-file currency change, a CLI
-  command with exact output, and a performance fix. Each is graded by hidden tests the agent never sees.
-- **Procedure:** 5 rounds of all 8 tasks per side (40 runs each). The two sides ran in lockstep, so both
-  were always under the same load at the same moment. 22:12–22:57 UTC.
+**Routes.**
+
+- **DeepInfra**, direct API, serving the Oct 17 snapshot (`deepseek-ai/DeepSeek-V4.1-Flash-1017`). It had a 51% promo:
+  $0.098 / $0.294 / $0.00294 per million tokens (input / output / cached input), down from $0.20 / $0.60 / $0.006.
+  OpenRouter routed to DeepInfra charges the same per token, plus a fee when you buy credits, so direct is the
+  cheapest way to spend $10 on this model via API.
+- **Command Code GOAT**, $10/month: up to $100 of DeepSeek V4.1 Flash usage a month, at most $20 per 5 hours and $50
+  per 7 days. Usage is charged at $0.15 / $0.60 / $0.003 per million tokens, **doubled in weekday peak hours**
+  (01–04 and 06–10 UTC). It serves `deepseek/deepseek-v4.1-flash` ("latest") and reports no snapshot date, so I
+  couldn't confirm it's the same weights.
+
+**Reasoning.** The routes don't share defaults: Command Code reasons by default; DeepInfra doesn't. Both accept a
+`reasoning_effort` parameter, so each route ran both ways: DeepInfra off (default) and `medium`; Command Code on
+(default) and `off`. That gives four sides.
+
+**Agent and harness.** opencode 1.19.5, run unattended in a Docker container with identical configuration
+on every side. A logging proxy between the agent and each API recorded every request: tokens, cache hits,
+latency, tool calls, errors, and caps vs rate limits.
+
+**Tasks.** 13 tasks on a small Python personal-finance library, each graded by hidden tests the agent never sees.
+
+- **8 core tasks:** a feature, two bug fixes, a refactor, writing tests (graded by catching planted bugs), a
+  multi-file change, an exact-output CLI command, and a performance fix.
+- **5 hard tasks:** recurring transactions with month-end and leap-year rules, a search-query language with
+  precedence and quoting, bank reconciliation that needs an optimal matching (greedy fails the tests), historical
+  exchange rates with inverse and cross rates and round-once arithmetic, and budget rollover with caps and refunds.
+
+**Procedure.** 5 rounds of all 13 tasks on all four sides: 260 runs, with up to 6 agents at once. The sides ran in
+lockstep, so they shared load and time of day. 00:15–02:08 UTC on Monday, Nov 9, so over half of each Command Code
+side's requests fell in peak hours. A smaller pilot the evening before (2 sides × 8 core tasks × 5 rounds,
+off-peak) agrees with these results.
 
 ## Results
 
-### What $10 buys
+### Quality: reasoning matters, the route doesn't
 
-| | DeepInfra ($10 prepaid) | Command Code GOAT ($10/mo) |
-|---|---|---|
-| tasks passed | 40 / 40 | 40 / 40 |
-| charged for the run | $0.050 | $0.124 of plan credit |
-| per passed task | $0.0013 | $0.0031 credit (= $0.0003 of the $10 fee, if you use the whole allowance) |
-| passed tasks per $10 | ~8,000 | ~32,000 per month, if fully used |
-| list-price value per $10* | 1.6× | 10× |
+| passed | DeepInfra, off | DeepInfra, on | Command Code, on | Command Code, off |
+|---|---|---|---|---|
+| core (40 runs each) | 40 | 40 | 39 | 39 |
+| hard (25 runs each) | **19** | **25** | **25** | **21** |
+| total (95% CI) | 91% [81–96] | 100% [94–100] | 98% [92–100] | 92% [83–97] |
 
-\*Every token valued at DeepSeek's official rates ($0.15 / $0.60 / $0.003). DeepInfra's promo makes $10 worth
-$16 at list price. Command Code's plan is worth $100, if you use it all.
+Paired on the same task and round:
 
-Per dollar, the subscription buys about 4× as many tasks, but the dollars arrive differently: GOAT
-charges $10 every month whether you use it or not, while DeepInfra charges only for what you use. At this
-run's cost per task, the break-even is about **8,000 agent tasks a month (~270 a day)**. Below that, the
-$10 of API credit is cheaper and lasts longer than a month. Above it, the plan wins, up to its caps.
+- **DeepInfra off vs on:** the 6 disagreements all favour reasoning (sign test p = 0.03).
+- **Reasoning on, DeepInfra vs Command Code:** 64 both passed, 1 disagreement.
+- **Reasoning off, DeepInfra vs Command Code:** 5 vs 6 disagreements, no difference.
+
+With reasoning matched, I found no quality difference between the routes. Without reasoning, the model
+failed hard tasks on both routes, and DeepInfra's no-reasoning agent hit the 20-minute limit 4 times (3 on t11
+reconciliation, 1 on t12 exchange rates), looping through up to 185 requests. Two of those runs still
+left passing code behind.
+
+### Cost: what $10 buys
+
+| | DeepInfra, off | DeepInfra, on | Command Code, on | Command Code, off |
+|---|---|---|---|---|
+| charged per graded run (95% CI) | $0.0034 [0.0020–0.0052] | $0.0028 [0.0024–0.0033] | $0.0082 credit [0.0065–0.0101] | $0.0055 credit [0.0044–0.0068] |
+| charged per passed task | $0.0037 | $0.0028 | $0.0083 credit | $0.0060 credit |
+| passed tasks per $10 | ~2,700 | ~3,500 | ~12,000 / month* | ~16,800 / month* |
+
+\*If you use the whole $100 monthly allowance, at this run's mix of peak and off-peak pricing.
+
+**Reasoning was cheaper on DeepInfra.** That sounds backwards until you look at the sessions: without reasoning,
+the agent averaged 16.9 requests and 387k prompt tokens per run, against 9.5 requests and 113k with reasoning. Cheap
+thinking beat expensive flailing. On Command Code the opposite held ($0.0083 vs $0.0060 per passed task), but there
+reasoning bought 4 extra hard-task passes.
+
+**Matched on reasoning, the routes used about the same tokens.** At DeepSeek's list price, a passed task
+consumed $0.0050 of tokens on DeepInfra and $0.0053 on Command Code. The cost gap is all pricing:
+
+- DeepInfra's promo charges about 0.56× list price.
+- Command Code charges 1× list price off-peak and 2× at peak, but gives you $100 of credit for $10.
+- 56% of the Command Code requests were at peak, so this run paid about 1.6× list price there.
+
+**Break-even.** With reasoning on, $10/month of plan buys about 12,000 passed tasks a month if fully used, against
+about 3,500 per $10 on DeepInfra. The plan wins once you'd spend more than $10 a month on DeepInfra: about **3,500
+passed tasks a month, or roughly 120 a day**. Below that, the $10 of API credit is cheaper, and it isn't gone at
+the end of the month. These tasks averaged about 100k prompt tokens per run (mostly cached); bigger real-world
+sessions cost proportionally more, which lowers the break-even task count but not the dollar logic.
 
 ### The caps don't bind
 
-The whole run used $0.12 of Command Code credit. The 5-hour window holds $20, about 6,400 of these tasks,
-or more than 20 a minute for 5 hours straight. One agent working sequentially takes about a minute per task. On a model
-this cheap, the rolling windows aren't a real constraint for one developer. The binding limit is the $100 monthly
-allowance, which you'd need about two weeks of nonstop agent use to exhaust (the weekly cap is $50).
-
-The time-of-day pricing matters more than the caps. A US developer working 9–5 Eastern never touches
-peak hours, but someone in Asia working daytime hours sits in the 01–04 and 06–10 UTC windows, and every request
-there costs double.
-
-### Same model, different behaviour
-
-On paper both sides serve the same model. In practice they behaved differently:
-
-| per run (median or mean) | DeepInfra | Command Code |
-|---|---|---|
-| requests | 6.4 | 7.0 |
-| prompt tokens | 49,700 | 61,500 |
-| output tokens | 1,190 | 2,300 |
-| of which reasoning | 0 | 720 |
-| tool calls | 5.1 | 7.9 |
-| cache hit rate | 84% | 83% |
-
-Command Code had reasoning turned on by default; DeepInfra did not. With identical client settings, the
-Command Code runs produced about twice the output, made more tool calls, and carried bigger contexts. That
-is why Command Code used 2.5× the credit per task. Its per-token rates are about the same as DeepInfra's promo
-for cached input, 1.5× for fresh input and 2× for output, so most of the gap comes from the extra tokens, not the rates. Reasoning didn't change the outcome: both passed everything. On harder work it might.
+Both Command Code sides draw on the same plan, and together they used about $0.89 of credit, against a $20 five-hour
+window, while sharing 6 agents for nearly two hours. The plan's rolling windows are irrelevant for one developer on a model this cheap. What binds is
+the $100 monthly allowance (the $50 weekly cap means at least two weeks of heavy use to exhaust it) and
+time of day: peak hours (01–04 and 06–10 UTC on weekdays) cover a US evening and an Asian morning, and every
+request there costs double.
 
 ### Speed
 
-| | DeepInfra | Command Code |
-|---|---|---|
-| median time to first token | 0.70 s | 1.37 s |
-| median time to response headers | 0.34 s | 1.36 s |
-| median output speed | 232 tok/s | 280 tok/s |
-| median wall time per task | 55 s | 72 s |
+| median | DeepInfra, off | DeepInfra, on | Command Code, on | Command Code, off |
+|---|---|---|---|---|
+| time to response headers | 0.44 s | 0.38 s | 1.40 s | 1.39 s |
+| time to first token | 0.79 s | 0.72 s | 1.41 s | 1.41 s |
+| output speed | 226 tok/s | 186 tok/s | 234 tok/s | 291 tok/s |
+| wall time per task | 66 s | 94 s | 86 s | 71 s |
 
-Command Code took about a second longer to start each response (headers at 1.36 s vs 0.34 s), which adds
-up over ~7 requests per task. Once it started, it generated faster. Combined with the extra reasoning, a
-task took about 30% longer.
+Command Code adds about a second before each response starts (headers at ~1.4 s vs ~0.4 s), then streams
+faster. Over a whole task that roughly evens out; with reasoning on, Command Code finished tasks slightly faster.
 
 ### Reliability
 
-No malformed tool calls, rate limits, caps, timeouts or errors on either side across 538 requests.
-Command Code advertises server-side tool-call repair, but with zero malformed calls on DeepInfra too, this run
-couldn't show whether it helps.
+Across 2,863 requests: no malformed tool calls, rate limits, caps or API errors on any side. The only failures
+were the agent's own: wrong answers on hard tasks, plus 4 timeouts by the no-reasoning DeepInfra agent on t11.
 
 ## Caveats
 
-- **The tasks were too easy to separate quality.** 40/40 on both sides means this run measured price and
-  speed, not capability. A 95% confidence interval on 40/40 still runs down to 91%. Harder, longer tasks
-  are the obvious follow-up.
-- **Small tasks.** About 50–60k prompt tokens per task, mostly cached. Real sessions on a large codebase
-  can be 10–50× bigger. The cost per task scales with session size, but the break-even in dollars doesn't change.
-- **The Command Code cost is an estimate** from token counts at their published rates; the API doesn't
-  return a cost. DeepInfra's is the cost it reported per request. Two runs interrupted by a restart
-  (well under 1¢) are not counted.
-- **Promos on both sides.** DeepInfra's 51% discount and Command Code's boosted $100 DeepSeek allowance
-  can end at any time. Without the DeepInfra promo, its cost per task roughly doubles.
-- **Reasoning defaults differed.** The two routes weren't configured identically at the server end. That's
-  part of what you get from each, but it means "same model" doesn't mean same behaviour.
-- **One evening, off-peak.** About half the runs had 2 agents running at once and the rest had 4. Both
-  sides always ran under the same load.
+- **The Command Code cost is our estimate** from token counts at their published rates, including the peak
+  multiplier; their API returns no cost. [[Studio's usage meter showed $X over the same period; ratio Y.]]
+- **Snapshot.** Command Code's "latest" may not be the exact 1017 weights. Quality was indistinguishable once
+  reasoning was matched.
+- **Promos on both sides.** Without DeepInfra's 51% discount, its cost per task roughly doubles and the break-even
+  halves. Command Code's $100 DeepSeek allowance is also a "boosted" deal.
+- **Sample size.** 65 runs per side; the hard-task differences are 4–6 runs out of 25. The reasoning effect is
+  consistent across both routes and significant on DeepInfra; differences between routes aren't.
+- **Task size.** Small to medium sessions on a small library. Very large codebases and long sessions change the
+  absolute numbers.
+- **One harness.** Agents other than opencode may set reasoning or caching differently.
 
 ## Bottom line
 
-If you run a coding agent all day, every day, the $10 plan buys roughly 4× more work per dollar than
-pay-as-you-go, and its caps won't get in your way on a cheap model. If you use an agent a few times a day,
-$10 of API credit goes further: it lasts for months, responds faster, and you're not paying for an
-allowance you don't use. Command Code also turns on reasoning by default, which costs credit and time;
-whether that's worth it depends on how hard your tasks are.
-
-*Method, tasks, harness and raw logs: [[link to repo]].*
+- **Turn reasoning on.** On DeepSeek V4.1 Flash it was the difference between 76–84% and 100% on hard tasks,
+  and on the pay-as-you-go route it was cheaper too.
+- **The route doesn't change quality.** Same model, same answers. What differs is price, latency, and defaults.
+- **Light to moderate use (under ~120 agent tasks a day): $10 of API credit.** It's cheaper, starts each
+  response a second sooner, and doesn't expire at the end of the month.
+- **Heavy daily use: the $10 plan,** worth roughly 3–5× as many tasks per dollar, more if you work outside
+  01–04 and 06–10 UTC on weekdays. The caps won't get in your way on a model this cheap.

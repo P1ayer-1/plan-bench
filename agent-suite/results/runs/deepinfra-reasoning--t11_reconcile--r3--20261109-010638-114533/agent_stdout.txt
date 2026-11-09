@@ -1,0 +1,4 @@
+I'll explore the codebase structure first.
+Implemented `ledger/reconcile.py` with maximum-cardinality, minimum-distance matching per amount group using an order-preserving DP. Added exports and tests.
+
+`python -m pytest -q` → **12 passed**.

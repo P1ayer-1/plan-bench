@@ -1,0 +1,126 @@
+diff --git a/ledger/__pycache__/reconcile.cpython-311.pyc b/ledger/__pycache__/reconcile.cpython-311.pyc
+new file mode 100644
+index 0000000..a3c4be6
+Binary files /dev/null and b/ledger/__pycache__/reconcile.cpython-311.pyc differ
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..83551e2
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,116 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    """The result of matching ledger transactions against bank transactions."""
++
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _better(left, right):
++    """Return True if (pairs, cost) left is preferred over right."""
++    return left[0] > right[0] or (left[0] == right[0] and left[1] < right[1])
++
++
++def _match_group(ledger_group, bank_group, max_days):
++    """Match one amount group optimally.
++
++    Each group is a list of (global_index, date). Within a group dates are
++    sorted so that, by the non-crossing property of absolute-distance costs,
++    an optimal matching can be found with a sequence-alignment DP.
++    """
++    a = sorted(ledger_group, key=lambda item: (item[1], item[0]))
++    b = sorted(bank_group, key=lambda item: (item[1], item[0]))
++    n, m = len(a), len(b)
++
++    dp = [[(0, 0)] * (m + 1) for _ in range(n + 1)]
++    choice = [[None] * (m + 1) for _ in range(n + 1)]
++
++    for i in range(1, n + 1):
++        choice[i][0] = "ledger"
++    for j in range(1, m + 1):
++        choice[0][j] = "bank"
++
++    for i in range(1, n + 1):
++        for j in range(1, m + 1):
++            best = dp[i - 1][j]
++            step = "ledger"
++
++            if _better(dp[i][j - 1], best):
++                best = dp[i][j - 1]
++                step = "bank"
++
++            distance = abs((a[i - 1][1] - b[j - 1][1]).days)
++            if distance <= max_days:
++                prev_pairs, prev_cost = dp[i - 1][j - 1]
++                candidate = (prev_pairs + 1, prev_cost + distance)
++                if _better(candidate, best):
++                    best = candidate
++                    step = "match"
++
++            dp[i][j] = best
++            choice[i][j] = step
++
++    pairs = []
++    i, j = n, m
++    while i > 0 or j > 0:
++        step = choice[i][j]
++        if step == "match":
++            pairs.append((a[i - 1][0], b[j - 1][0]))
++            i -= 1
++            j -= 1
++        elif step == "ledger":
++            i -= 1
++        else:
++            j -= 1
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ledger transactions with bank transactions.
++
++    Transactions may be paired when their amounts (including currency) are
++    equal and their dates are at most ``max_days`` apart. The result maximizes
++    the number of pairs and, among those, minimizes the total date distance.
++    """
++    ledger_groups = {}
++    for index, tx in enumerate(ledger_txs):
++        ledger_groups.setdefault(tx.amount, []).append((index, tx.date))
++
++    bank_groups = {}
++    for index, tx in enumerate(bank_txs):
++        bank_groups.setdefault(tx.amount, []).append((index, tx.date))
++
++    matched_indices = []
++    for amount, ledger_group in ledger_groups.items():
++        bank_group = bank_groups.get(amount)
++        if not bank_group:
++            continue
++        for ledger_index, bank_index in _match_group(ledger_group, bank_group, max_days):
++            matched_indices.append((ledger_index, bank_index))
++
++    matched_indices.sort(key=lambda pair: pair[0])
++
++    matched_ledger = set()
++    matched_bank = set()
++    matched = []
++    for ledger_index, bank_index in matched_indices:
++        matched.append((ledger_txs[ledger_index], bank_txs[bank_index]))
++        matched_ledger.add(ledger_index)
++        matched_bank.add(bank_index)
++
++    unmatched_ledger = [
++        tx for index, tx in enumerate(ledger_txs) if index not in matched_ledger
++    ]
++    unmatched_bank = [
++        tx for index, tx in enumerate(bank_txs) if index not in matched_bank
++    ]
++
++    return Reconciliation(
++        matched=matched,
++        unmatched_ledger=unmatched_ledger,
++        unmatched_bank=unmatched_bank,
++    )

@@ -1,0 +1,857 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -type f -not -path './.git/*' | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:48 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:48 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 651 Nov  9 00:48 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m$ [0mcat README.md ledger/ledger.py ledger/__init__.py ledger/money.py ledger/parser.py; echo ===; cat tests/test_basic.py; echo ===; cat ledger/cli.py ledger/report.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+===
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+===
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+[0m
+[0m← [0mWrite ledger/search.py
+Wrote file successfully.
+[0m
+[0m← [0mWrite ledger/search.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython - <<'EOF'
+import re
+p='ledger/search.py'
+s=open(p).read()
+s=s.replace('''        elif word.endswith(":") and low in {f + ":" for f in _FIELDS}:
+            pass
+        elif ":" in word:''','''        elif ":" in word:''')
+open(p,'w').write(s)
+EOF
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 4.47s
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/ledger.py
+@@ -31,8 +31,13 @@
+             continue
+         out.append(tx)
+     return out
+ 
++def search(self, query):
++    """Return transactions matching the search-language query, in order."""
++    from .search import search
++    return search(self, query)
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Money, Transaction
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),"Lunch",Money("-12.5"),"food",("work","Lunch")),
+]
+l=Ledger(txs)
+def q(s): return [t.description for t in l.search(s)]
+print(q(""))
+print(q("  "))
+print(q("category:food"))
+print(q("tag:WORK"))
+print(q('desc:"coffee shop"'))
+print(q("amount<-20"))
+print(q("amount < -5"))
+print(q("amount>=10.50"))
+print(q("amount=0"))
+print(q("date>=2026-02-01"))
+print(q("category:food tag:x"))
+print(q("category:food AND NOT tag:work"))
+print(q("desc:\"coffee shop\" OR (category:food AND NOT tag:work) amount<-5"))
+print(q("category:food OR tag:monthly category:housing"))
+print(q("NOT NOT category:food"))
+print(q('desc:"a \\"q\\" b"'))
+for bad in ["foo:bar","(category:food","category:food)","category:food AND","OR tag:x","NOT","amount!5","amount<abc","date>=2026-13-01",'desc:"oops',"()","","and","category:"]:
+    try:
+        l.search(bad); print("NO ERROR", repr(bad))
+    except ValueError as e: print("ok", repr(bad), e)
+EOF
+['Coffee Shop', 'Salary', 'Rent', 'Lunch']
+['Coffee Shop', 'Salary', 'Rent', 'Lunch']
+['Coffee Shop', 'Lunch']
+['Lunch']
+Traceback (most recent call last):
+  File "<stdin>", line 15, in <module>
+  File "<stdin>", line 10, in q
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/ledger.py", line 38, in search
+    return search(self, query)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 310, in search
+    matcher = compile_query(query)
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 306, in compile_query
+    return _Parser(_tokenize(query)).parse()
+                   ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 155, in _tokenize
+    raise ValueError(f"empty value for {field}: {word!r}")
+ValueError: empty value for desc: 'desc:'
+[0m
+[0m→ [0mRead ledger/search.py[90m [offset=108, limit=75][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+@@ -145,21 +145,20 @@
+     word = query[start:i]
+     low = word.lower()
+     if low in ("and", "or", "not"):
+         tokens.append(_Token(low.upper()))
++    elif word.endswith(":") and word[:-1] in _FIELDS:
++        # ``field:`` followed by a quoted value.
++        tokens.append(_Token(_TERM, (word[:-1], None)))
+     elif ":" in word:
+         field, _, value = word.partition(":")
+-        if not field or not all(_is_bare_char(ch) for ch in field):
++        if not field:
+             raise ValueError(f"malformed term: {word!r}")
+-        if value == "":
+-            if field in _FIELDS:
+-                raise ValueError(f"empty value for {field}: {word!r}")
+-            raise ValueError(f"unknown field: {field!r}")
+         tokens.append(_Token(_TERM, (field, value)))
+     else:
+         field, op, rhs = _split_comparison(word)
+         if field is not None:
+-            tokens.append(_Token(_TERM, (field, None, op, rhs)))
++            tokens.append(_Token(_TERM, (field, op, rhs)))
+         else:
+             tokens.append(_Token(_TERM, (None, word)))
+ tokens.append(_Token(_EOF))
+ return tokens
+
+[0m
+[0m→ [0mRead ledger/search.py[90m [limit=60, offset=243][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+@@ -251,55 +251,62 @@
+     def _starts_operand(tok):
+         return tok.kind in (_TERM, _NOT, _LPAREN)
+ 
+     def _make_term(self, parts):
+-        if len(parts) == 4:
+-            field, _, op, rhs = parts
++        if len(parts) == 3:
++            field, op, rhs = parts
++            if field not in _FIELDS:
++                raise ValueError(f"unknown field: {field!r}")
+             if not rhs:
+                 raise ValueError(f"missing value for {field}")
+-            if field == "amount":
+-                try:
+-                    number = Decimal(rhs)
+-                except InvalidOperation:
+-                    raise ValueError(f"invalid number: {rhs!r}")
+-                return _Term("amount", op=op, number=number)
+-            try:
+-                day = date.fromisoformat(rhs)
+-            except ValueError:
+-                raise ValueError(f"invalid date: {rhs!r}")
+-            return _Term("date", op=op, day=day)
++            return self._comparison(field, op, rhs)
+ 
+         first, second = parts
+         if first is None:
+             raise ValueError(f"malformed term: {second!r}")
+         if first not in _FIELDS:
+             raise ValueError(f"unknown field: {first!r}")
+         if first in ("category", "tag", "desc"):
++            if second is None:
++                # ``field:`` followed by a quoted value.
++                rhs_tok = self.peek()
++                if rhs_tok.kind != _STRING:
++                    raise ValueError(f"missing value for {first}")
++                self.advance()
++                second = rhs_tok.value
+             if second == "":
+                 raise ValueError(f"empty value for {first}")
+             return _Term(first, value=second)
+-        # amount/date with separated OP: first token is "amount"/"date",
+-        # second is the operator; the value follows.
++        # amount/date with a separated OP: ``field`` then operator token, then
++        # the value token.
+         if second not in _OPS:
+             raise ValueError(f"bad operator for {first}: {second!r}")
+         rhs_tok = self.peek()
+-        if rhs_tok.kind != _TERM or len(rhs_tok.value) != 2 or rhs_tok.value[0] is not None:
++        if rhs_tok.kind == _STRING:
++            rhs = rhs_tok.value
++            self.advance()
++        elif rhs_tok.kind == _TERM and len(rhs_tok.value) == 2 and rhs_tok.value[0] is None:
++            rhs = rhs_tok.value[1]
++            self.advance()
++        else:
+             raise ValueError(f"missing value for {first}")
+-        rhs = rhs_tok.value[1]
+-        if rhs in _OPS:
+-            raise ValueError(f"missing value for {first}")
+-        self.advance()
+-        if first == "amount":
++        return self._comparison(first, second, rhs)
++
++    @staticmethod
++    def _comparison(field, op, rhs):
++        if op not in _OPS:
++            raise ValueError(f"bad operator for {field}: {op!r}")
++        if field == "amount":
+             try:
+                 number = Decimal(rhs)
+             except InvalidOperation:
+                 raise ValueError(f"invalid number: {rhs!r}")
+-            return _Term("amount", op=second, number=number)
++            return _Term("amount", op=op, number=number)
+         try:
+             day = date.fromisoformat(rhs)
+         except ValueError:
+             raise ValueError(f"invalid date: {rhs!r}")
+-        return _Term("date", op=second, day=day)
++        return _Term("date", op=op, day=day)
+ 
+ 
+ def compile_query(query):
+     return _Parser(_tokenize(query)).parse()
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Money, Transaction
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),"Lunch",Money("-12.5"),"food",("work","Lunch")),
+]
+l=Ledger(txs)
+def q(s): return [t.description for t in l.search(s)]
+print(q('desc:"coffee shop"'))
+print(q("amount<-20"))
+print(q("amount < -5"))
+print(q("amount>=10.50"))
+print(q("amount=0"))
+print(q("date>=2026-02-01"))
+print(q("category:food tag:x"))
+print(q("category:food AND NOT tag:work"))
+print(q('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'))
+print(q("category:food OR tag:monthly category:housing"))
+print(q("NOT NOT category:food"))
+print(q('desc:"coffee \\"shop\\""'))
+print(q('category:"FOOD"'))
+print(q('amount < "10"'))
+print(q('date = 2026-01-15'))
+for bad in ["foo:bar","(category:food","category:food)","category:food AND","OR tag:x","NOT","amount!5","amount<abc","date>=2026-13-01",'desc:"oops',"()","and","category:","amount<","( )","amount"]:
+    try:
+        l.search(bad); print("NO ERROR", repr(bad))
+    except ValueError as e: print("ok", repr(bad), e)
+EOF
+['Coffee Shop']
+['Rent']
+Traceback (most recent call last):
+  File "<stdin>", line 13, in <module>
+  File "<stdin>", line 10, in q
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/ledger.py", line 38, in search
+    return search(self, query)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 316, in search
+    matcher = compile_query(query)
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 312, in compile_query
+    return _Parser(_tokenize(query)).parse()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 195, in parse
+    node = self.parse_or()
+           ^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 201, in parse_or
+    node = self.parse_and()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 210, in parse_and
+    node = self.parse_not()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 230, in parse_not
+    return self.parse_primary()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 245, in parse_primary
+    return self._make_term(tok.value)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py", line 265, in _make_term
+    raise ValueError(f"malformed term: {second!r}")
+ValueError: malformed term: 'amount'
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+@@ -148,8 +148,10 @@
+     tokens.append(_Token(low.upper()))
+ elif word.endswith(":") and word[:-1] in _FIELDS:
+     # ``field:`` followed by a quoted value.
+     tokens.append(_Token(_TERM, (word[:-1], None)))
++elif word in ("amount", "date"):
++    tokens.append(_Token(_TERM, (word, None)))
+ elif ":" in word:
+     field, _, value = word.partition(":")
+     if not field:
+         raise ValueError(f"malformed term: {word!r}")
+
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+@@ -277,11 +277,11 @@
+         second = rhs_tok.value
+     if second == "":
+         raise ValueError(f"empty value for {first}")
+     return _Term(first, value=second)
+-# amount/date with a separated OP: ``field`` then operator token, then
+-# the value token.
+-if second not in _OPS:
++# amount/date: either ``field`` then operator+value, or a glued
++# ``field<op>value`` term.  ``field:`` is not valid here.
++if second is not None:
+     raise ValueError(f"bad operator for {first}: {second!r}")
+ rhs_tok = self.peek()
+ if rhs_tok.kind == _STRING:
+     rhs = rhs_tok.value
+
+[0m
+[0m→ [0mRead ledger/search.py[90m [limit=30, offset=268][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r2--20261109-004801-054042/ws/ledger/search.py
+@@ -281,8 +281,14 @@
+     # amount/date: either ``field`` then operator+value, or a glued
+     # ``field<op>value`` term.  ``field:`` is not valid here.
+     if second is not None:
+         raise ValueError(f"bad operator for {first}: {second!r}")
++    op_tok = self.peek()
++    if op_tok.kind != _TERM or len(op_tok.value) != 2 or op_tok.value[0] is not None \
++            or op_tok.value[1] not in _OPS:
++        raise ValueError(f"bad or missing operator for {first}")
++    self.advance()
++    op = op_tok.value[1]
+     rhs_tok = self.peek()
+     if rhs_tok.kind == _STRING:
+         rhs = rhs_tok.value
+         self.advance()
+@@ -290,9 +296,9 @@
+         rhs = rhs_tok.value[1]
+         self.advance()
+     else:
+         raise ValueError(f"missing value for {first}")
+-    return self._comparison(first, second, rhs)
++    return self._comparison(first, op, rhs)
+ 
+ @staticmethod
+ def _comparison(field, op, rhs):
+     if op not in _OPS:
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Money, Transaction
+txs=[
+ Transaction(date(2026,1,3),"Coffee Shop",Money("-4.50"),"food",("morning",)),
+ Transaction(date(2026,1,15),"Salary",Money("3000"),"income",()),
+ Transaction(date(2026,2,1),"Rent",Money("-1200"),"housing",("fixed","monthly")),
+ Transaction(date(2026,2,2),"Lunch",Money("-12.5"),"food",("work","Lunch")),
+]
+l=Ledger(txs)
+def q(s): return [t.description for t in l.search(s)]
+print(q('desc:"coffee shop"'))
+print(q("amount<-20"))
+print(q("amount < -5"))
+print(q("amount>=10.50"))
+print(q("amount=0"))
+print(q("date>=2026-02-01"))
+print(q("category:food tag:x"))
+print(q("category:food AND NOT tag:work"))
+print(q('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'))
+print(q("category:food OR tag:monthly category:housing"))
+print(q("NOT NOT category:food"))
+print(q('desc:"coffee \\"shop\\""'))
+print(q('category:"FOOD"'))
+print(q('amount < "10"'))
+print(q('date = 2026-01-15'))
+for bad in ["foo:bar","(category:food","category:food)","category:food AND","OR tag:x","NOT","amount!5","amount<abc","date>=2026-13-01",'desc:"oops',"()","and","category:","amount<","( )","amount","amount:5"]:
+    try:
+        l.search(bad); print("NO ERROR", repr(bad))
+    except ValueError as e: print("ok", repr(bad), e)
+EOF
+['Coffee Shop']
+['Rent']
+['Rent', 'Lunch']
+['Salary']
+[]
+['Rent', 'Lunch']
+[]
+['Coffee Shop']
+['Coffee Shop']
+['Coffee Shop', 'Rent', 'Lunch']
+['Coffee Shop', 'Lunch']
+[]
+['Coffee Shop', 'Lunch']
+['Coffee Shop', 'Rent', 'Lunch']
+['Salary']
+ok 'foo:bar' unknown field: 'foo'
+ok '(category:food' unbalanced parentheses
+ok 'category:food)' unexpected trailing input
+ok 'category:food AND' AND with missing operand
+ok 'OR tag:x' unexpected token
+ok 'NOT' NOT with missing operand
+ok 'amount!5' malformed term: 'amount!5'
+ok 'amount<abc' invalid number: 'abc'
+ok 'date>=2026-13-01' invalid date: '2026-13-01'
+ok 'desc:"oops' unterminated quote
+ok '()' empty group
+ok 'and' unexpected token
+ok 'category:' missing value for category
+ok 'amount<' missing value for amount
+ok '( )' empty group
+ok 'amount' bad or missing operator for amount
+ok 'amount:5' bad operator for amount: '5'
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Ledger, Money, Transaction
+l=Ledger([Transaction(date(2026,1,3),'he said "hi"',Money(1),"x",())])
+print([t.description for t in l.search('desc:"said \\"hi\\""')])
+print([t.description for t in l.search('desc:h')])
+EOF
+['he said "hi"']
+['he said "hi"']
+[0m
+[0m$ [0mcat > tests/test_search.py <<'EOF'
+from datetime import date
+import pytest
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee Shop,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+2026-02-02,Lunch,-12.50,food,work;Lunch
+"""
+
+
+def make():
+    return Ledger(parse_csv(CSV))
+
+
+def descs(ledger, query):
+    return [t.description for t in ledger.search(query)]
+
+
+def test_empty_matches_all():
+    l = make()
+    assert len(l.search("")) == 4
+    assert len(l.search("   ")) == 4
+
+
+def test_category_case_insensitive():
+    assert descs(make(), "category:FOOD") == ["Coffee Shop", "Lunch"]
+
+
+def test_tag_case_insensitive():
+    assert descs(make(), "tag:work") == ["Lunch"]
+    assert descs(make(), "tag:lunch") == ["Lunch"]
+
+
+def test_desc_substring():
+    assert descs(make(), 'desc:"coffee shop"') == ["Coffee Shop"]
+
+
+def test_amount_comparisons():
+    assert descs(make(), "amount<-20") == ["Rent"]
+    assert descs(make(), "amount >= 3000") == ["Salary"]
+    assert descs(make(), "amount=0") == []
+
+
+def test_date_comparison():
+    assert descs(make(), "date>=2026-02-01") == ["Rent", "Lunch"]
+
+
+def test_preserves_original_order():
+    assert descs(make(), "category:food OR tag:monthly") == [
+        "Coffee Shop", "Rent", "Lunch"]
+
+
+def test_implicit_and_precedence():
+    assert descs(make(), "category:food tag:work") == ["Lunch"]
+    l = make()
+    assert descs(l, "category:food OR tag:monthly category:housing") == [
+        "Coffee Shop", "Rent", "Lunch"]
+    assert descs(l, "NOT category:food") == ["Salary", "Rent"]
+
+
+def test_complex():
+    q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+    assert descs(make(), q) == ["Coffee Shop", "Rent"]
+
+
+def test_quoted_escapes():
+    l = Ledger([Transaction(date(2026, 1, 1), 'a "b" c', Money(1), "x", ())])
+    assert quers(l, 'desc:"a \\"b\\" c"') == ['a "b" c']
+
+
+def quers(l, q):
+    return [t.description for t in l.search(q)]
+
+
+@pytest.mark.parametrize("query", [
+    "foo:bar", "(category:food", "category:food)", "category:food AND",
+    "OR tag:x", "NOT", "amount!5", "amount<abc", "date>=2026-13-01",
+    'desc:"oops', "()",
+])
+def test_errors(query):
+    with pytest.raises(ValueError):
+        make().search(query)
+EOF
+python -m pytest -q
+............F............                                                [100%]
+=================================== FAILURES ===================================
+_________________________________ test_complex _________________________________
+
+    def test_complex():
+        q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+>       assert descs(make(), q) == ["Coffee Shop", "Rent"]
+E       AssertionError: assert ['Coffee Shop'] == ['Coffee Shop', 'Rent']
+E         
+E         Right contains one more item: 'Rent'
+E         Use -v to get more diff
+
+tests/test_search.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_search.py::test_complex - AssertionError: assert ['Coffee S...
+1 failed, 24 passed in 0.32s
+[0m
+[0m$ [0mpython - <<'EOF'
+p='tests/test_search.py'
+s=open(p).read()
+s=s.replace('''    q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+    assert descs(make(), q) == ["Coffee Shop", "Rent"]''','''    q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+    assert descs(make(), q) == []
+    q2 = 'desc:"coffee shop" OR (category:food AND NOT tag:work) OR amount<-5'
+    assert descs(make(), q2) == ["Coffee Shop", "Rent"]''')
+open(p,'w').write(s)
+EOF
+python -m pytest -q
+............F............                                                [100%]
+=================================== FAILURES ===================================
+_________________________________ test_complex _________________________________
+
+    def test_complex():
+        q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+>       assert descs(make(), q) == []
+E       AssertionError: assert ['Coffee Shop'] == []
+E         
+E         Left contains one more item: 'Coffee Shop'
+E         Use -v to get more diff
+
+tests/test_search.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_search.py::test_complex - AssertionError: assert ['Coffee S...
+1 failed, 24 passed in 0.31s
+[0m
+[0m$ [0mpython - <<'EOF'
+p='tests/test_search.py'
+s=open(p).read()
+s=s.replace('''    assert descs(make(), q) == []
+    q2 = 'desc:"coffee shop" OR (category:food AND NOT tag:work) OR amount<-5'
+    assert descs(make(), q2) == ["Coffee Shop", "Rent"]''','''    assert descs(make(), q) == ["Coffee Shop"]
+    q2 = 'desc:"coffee shop" OR (category:food AND NOT tag:work) OR amount<-5'
+    assert descs(make(), q2) == ["Coffee Shop", "Rent"]''')
+open(p,'w').write(s)
+EOF
+python -m pytest -q
+............F............                                                [100%]
+=================================== FAILURES ===================================
+_________________________________ test_complex _________________________________
+
+    def test_complex():
+        q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+        assert descs(make(), q) == ["Coffee Shop"]
+        q2 = 'desc:"coffee shop" OR (category:food AND NOT tag:work) OR amount<-5'
+>       assert descs(make(), q2) == ["Coffee Shop", "Rent"]
+E       AssertionError: assert ['Coffee Shop...ent', 'Lunch'] == ['Coffee Shop', 'Rent']
+E         
+E         Left contains one more item: 'Lunch'
+E         Use -v to get more diff
+
+tests/test_search.py:68: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_search.py::test_complex - AssertionError: assert ['Coffee S...
+1 failed, 24 passed in 0.40s
+[0m
+[0m$ [0mpython - <<'EOF'
+p='tests/test_search.py'
+s=open(p).read()
+s=s.replace('assert descs(make(), q2) == ["Coffee Shop", "Rent"]','assert descs(make(), q2) == ["Coffee Shop", "Rent", "Lunch"]')
+open(p,'w').write(s)
+EOF
+python -m pytest -q
+.........................                                                [100%]
+25 passed in 0.16s
+[0m
+[0m$ [0mgrep -n "_split_comparison\|_All\|low = word" ledger/search.py; git status --short
+36:class _All(_Node):
+146:        low = word.lower()
+160:            field, op, rhs = _split_comparison(word)
+169:def _split_comparison(word):
+196:            return _All()
+ M ledger/ledger.py
+?? ledger/search.py
+?? tests/test_search.py
+[0m
+[0m$ [0mpython -m pytest -q
+.........................                                                [100%]
+25 passed in 0.18s
+[0m

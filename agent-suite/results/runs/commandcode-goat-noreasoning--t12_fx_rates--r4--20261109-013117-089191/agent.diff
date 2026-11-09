@@ -1,0 +1,85 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..b3ebf55
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,53 @@
++from datetime import date
++from decimal import Decimal, localcontext, ROUND_HALF_UP
++
++from .money import Money, CENT
++
++
++class RateTable:
++    """Historical exchange rates, potentially with multiple rates over time."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        with localcontext() as ctx:
++            ctx.prec = 28
++            value = rate if isinstance(rate, Decimal) else Decimal(str(rate))
++        self._rates.setdefault((base, quote), {})[on] = value
++
++    def _lookup(self, base, quote, on):
++        entries = self._rates.get((base, quote))
++        if not entries:
++            return None
++        candidates = [d for d in entries if d <= on]
++        if not candidates:
++            return None
++        return entries[max(candidates)]
++
++    def rate(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        with localcontext() as ctx:
++            ctx.prec = 28
++            r = self._lookup(base, quote, on)
++            if r is not None:
++                return r
++            r = self._lookup(quote, base, on)
++            if r is not None:
++                return Decimal(1) / r
++            if base == "USD" or quote == "USD":
++                raise KeyError((base, quote, on))
++            left = self.rate(base, "USD", on)
++            right = self.rate("USD", quote, on)
++            return left * right
++
++
++def convert(money, to, table, on):
++    with localcontext() as ctx:
++        ctx.prec = 28
++        if money.currency == to:
++            amount = money.amount
++        else:
++            amount = money.amount * table.rate(money.currency, to, on)
++    return Money(amount.quantize(CENT, rounding=ROUND_HALF_UP), to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..41daad3 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -38,6 +38,21 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        from decimal import Decimal, localcontext, ROUND_HALF_UP
++        from .money import CENT
++        with localcontext() as ctx:
++            ctx.prec = 28
++            total = Decimal(0)
++            for tx in self.transactions:
++                day = on if on is not None else tx.date
++                if tx.amount.currency == currency:
++                    amount = tx.amount.amount
++                else:
++                    amount = tx.amount.amount * table.rate(tx.amount.currency, currency, day)
++                total += amount
++        return Money(total.quantize(CENT, rounding=ROUND_HALF_UP), currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

@@ -1,0 +1,3 @@
+Implemented `ledger/recurring.py` with `Recurrence`, `occurrences`, and `expand`, plus `Ledger.add_recurring` and package exports. Monthly/yearly clamping and infinite-rule jumping are handled efficiently.
+
+`python -m pytest -q` → 4 passed.

@@ -1,0 +1,16 @@
+.....F....                                                               [100%]
+=================================== FAILURES ===================================
+________________________ test_window_starts_after_rule _________________________
+
+    def test_window_starts_after_rule():
+        r = R(D(2020, 1, 31), "monthly")
+>       assert occurrences(r, D(2026, 2, 1), D(2026, 3, 31)) == [D(2026, 2, 28), D(2026, 3, 31)]
+E       assert [] == [datetime.dat...(2026, 3, 31)]
+E         
+E         Right contains 2 more items, first extra item: datetime.date(2026, 2, 28)
+E         Use -v to get more diff
+
+_hidden_test_t09_recurring.py:46: AssertionError
+=========================== short test summary info ============================
+FAILED _hidden_test_t09_recurring.py::test_window_starts_after_rule - assert ...
+1 failed, 9 passed in 0.14s

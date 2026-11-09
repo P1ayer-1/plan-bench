@@ -1,0 +1,22 @@
+diff --git a/ledger/money.py b/ledger/money.py
+index c17d860..6be4055 100644
+--- a/ledger/money.py
++++ b/ledger/money.py
+@@ -38,9 +38,14 @@ class Money:
+         return f"{self.amount} {self.currency}"
+ 
+     def split(self, n):
+-        """Split into n parts."""
+-        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-        return [Money(part, self.currency) for _ in range(n)]
++        """Split into n parts, summing exactly with extra cents first."""
++        if n <= 0:
++            raise ValueError("n must be positive")
++        sign = -1 if self.amount < 0 else 1
++        total_cents = int((abs(self.amount) / CENT).to_integral_value())
++        base, extra = divmod(total_cents, n)
++        parts = [sign * (base + (1 if i < extra else 0)) for i in range(n)]
++        return [Money(Decimal(c) * CENT, self.currency) for c in parts]
+ 
+     @classmethod
+     def zero(cls, currency="USD"):

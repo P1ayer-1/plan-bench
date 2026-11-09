@@ -1,0 +1,134 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..af80b8f 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .recurring import Recurrence, expand, occurrences
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..592cea4 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -38,6 +38,13 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def add_recurring(self, rule, window_start, window_end):
++        """Append transactions expanded from a recurrence rule for the window."""
++        from .recurring import expand
++        transactions = expand(rule, window_start, window_end)
++        self.transactions.extend(transactions)
++        return len(transactions)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""
+diff --git a/ledger/recurring.py b/ledger/recurring.py
+new file mode 100644
+index 0000000..41f6ddb
+--- /dev/null
++++ b/ledger/recurring.py
+@@ -0,0 +1,102 @@
++from calendar import monthrange
++from dataclasses import dataclass
++from datetime import date, timedelta
++
++from .ledger import Transaction
++from .money import Money
++
++FREQUENCIES = ("weekly", "monthly", "yearly")
++
++
++@dataclass(frozen=True)
++class Recurrence:
++    description: str
++    amount: Money
++    category: str
++    start: date
++    freq: str
++    interval: int = 1
++    count: int | None = None
++    until: date | None = None
++    skip: tuple = ()
++
++
++def _validate(rule):
++    if rule.freq not in FREQUENCIES:
++        raise ValueError(f"invalid freq: {rule.freq!r}")
++    if rule.interval < 1:
++        raise ValueError("interval must be at least 1")
++    if rule.count is not None and rule.count < 0:
++        raise ValueError("count must not be negative")
++
++
++def _date_at(rule, k):
++    if rule.freq == "weekly":
++        return rule.start + timedelta(days=7 * rule.interval * k)
++    if rule.freq == "monthly":
++        index = rule.start.year * 12 + (rule.start.month - 1) + rule.interval * k
++        year, month = divmod(index, 12)
++        month += 1
++        day = min(rule.start.day, monthrange(year, month)[1])
++        return date(year, month, day)
++    year = rule.start.year + rule.interval * k
++    day = min(rule.start.day, monthrange(year, rule.start.month)[1])
++    return date(year, rule.start.month, day)
++
++
++def _first_index(rule, window_start):
++    if rule.freq == "weekly":
++        days = (window_start - rule.start).days
++        if days <= 0:
++            return 0
++        return days // (7 * rule.interval)
++    if rule.freq == "monthly":
++        months = (
++            (window_start.year - rule.start.year) * 12
++            + window_start.month
++            - rule.start.month
++        )
++        if months <= 0:
++            return 0
++        return months // rule.interval
++    years = window_start.year - rule.start.year
++    if years <= 0:
++        return 0
++    return years // rule.interval
++
++
++def occurrences(rule, window_start, window_end):
++    """Return occurrence dates within [window_start, window_end], inclusive."""
++    _validate(rule)
++    if rule.count == 0:
++        return []
++
++    skip = frozenset(rule.skip)
++    result = []
++    k = _first_index(rule, window_start)
++    while True:
++        if rule.count is not None and k >= rule.count:
++            break
++        current = _date_at(rule, k)
++        if rule.until is not None and current > rule.until:
++            break
++        if current > window_end:
++            break
++        if current >= window_start and current not in skip:
++            result.append(current)
++        k += 1
++    return result
++
++
++def expand(rule, window_start, window_end):
++    """Expand a recurrence into transactions within the window."""
++    return [
++        Transaction(
++            date=current,
++            description=rule.description,
++            amount=rule.amount,
++            category=rule.category,
++            tags=("recurring",),
++        )
++        for current in occurrences(rule, window_start, window_end)
++    ]

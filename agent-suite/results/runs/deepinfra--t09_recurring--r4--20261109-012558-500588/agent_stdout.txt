@@ -1,0 +1,2 @@
+Let me clean up the unused `_limit` helper and verify behavior.
+Done. Added `ledger/recurring.py` with `Recurrence`, `occurrences`, `expand`, and `Ledger.add_recurring` (ledger.py:33). All tests pass.

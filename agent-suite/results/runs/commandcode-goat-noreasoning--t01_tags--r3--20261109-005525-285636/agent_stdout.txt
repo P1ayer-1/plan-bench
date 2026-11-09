@@ -1,0 +1,1 @@
+Done. Added `tag` filter to `query()` and `tags()` returning sorted distinct tags.

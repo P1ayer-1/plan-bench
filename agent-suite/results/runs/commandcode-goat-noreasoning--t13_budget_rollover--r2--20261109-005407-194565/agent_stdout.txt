@@ -1,0 +1,2 @@
+Works. Let me clean up the awkward loop line.
+Added `ledger/budget.py` with `budget_report`, including validation, rollover with cap, negative-refund handling, and currency mismatch errors. All 4 existing tests pass.

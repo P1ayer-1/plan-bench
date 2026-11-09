@@ -1,0 +1,1 @@
+Added the `balance` command with `--since`, `--until`, and `--category` filters. Invalid dates produce an argparse error on stderr and exit status 2. All 4 tests pass.

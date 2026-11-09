@@ -1,0 +1,253 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..9b969b2
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,163 @@
++from dataclasses import dataclass, field
++from collections import defaultdict, deque
++
++from .money import Money
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++class _Edge:
++    __slots__ = ("to", "cap", "cost", "rev")
++
++    def __init__(self, to, cap, cost, rev):
++        self.to = to
++        self.cap = cap
++        self.cost = cost
++        self.rev = rev
++
++
++def _min_cost_max_flow(graph, source, sink):
++    """Successive shortest augmenting paths using SPFA.
++
++    Returns (flow, cost). Handles negative residual edge costs; the graph has
++    no negative cycles because it is a layered source->ledger->bank->sink
++    network.
++    """
++    n = len(graph)
++    total_flow = 0
++    total_cost = 0
++    while True:
++        dist = [None] * n
++        prev = [None] * n
++        in_queue = [False] * n
++        dist[source] = 0
++        q = deque([source])
++        in_queue[source] = True
++        while q:
++            u = q.popleft()
++            in_queue[u] = False
++            du = dist[u]
++            for idx, e in enumerate(graph[u]):
++                if e.cap <= 0:
++                    continue
++                nd = du + e.cost
++                if dist[e.to] is None or nd < dist[e.to]:
++                    dist[e.to] = nd
++                    prev[e.to] = (u, idx)
++                    if not in_queue[e.to]:
++                        in_queue[e.to] = True
++                        q.append(e.to)
++        if dist[sink] is None:
++            break
++        aug = None
++        v = sink
++        while v != source:
++            u, idx = prev[v]
++            cap = graph[u][idx].cap
++            aug = cap if aug is None else min(aug, cap)
++            v = u
++        v = sink
++        while v != source:
++            u, idx = prev[v]
++            e = graph[u][idx]
++            e.cap -= aug
++            graph[v][e.rev].cap += aug
++            v = u
++        total_flow += aug
++        total_cost += aug * dist[sink]
++    return total_flow, total_cost
++
++
++def _add_edge(graph, u, v, cap, cost):
++    graph[u].append(_Edge(v, cap, cost, len(graph[v])))
++    graph[v].append(_Edge(u, 0, -cost, len(graph[u]) - 1))
++
++
++def _match_group(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days, out):
++    """Max-cardinality, min-total-distance matching within one amount group."""
++    nl = len(ledger_idx)
++    nb = len(bank_idx)
++    if not nl or not nb:
++        return
++
++    candidates = []
++    for li in range(nl):
++        ld = ledger_txs[ledger_idx[li]].date
++        for bi in range(nb):
++            dist = abs((ld - bank_txs[bank_idx[bi]].date).days)
++            if dist <= max_days:
++                candidates.append((li, bi, dist))
++
++    if not candidates:
++        return
++
++    source = nl + nb
++    sink = source + 1
++    graph = [[] for _ in range(sink + 1)]
++    for li in range(nl):
++        _add_edge(graph, source, li, 1, 0)
++    for bi in range(nb):
++        _add_edge(graph, nl + bi, sink, 1, 0)
++
++    # Max-flow maximises the number of pairs; min-cost then minimises the
++    # total date distance (all edge costs are non-negative).
++    for li, bi, dist in candidates:
++        _add_edge(graph, li, nl + bi, 1, dist)
++
++    _min_cost_max_flow(graph, source, sink)
++
++    for li, bi, dist in candidates:
++        # Forward edge from li to nl+bi is saturated when matched.
++        for e in graph[li]:
++            if e.to == nl + bi:
++                if e.cap == 0:
++                    out.append((ledger_idx[li], bank_idx[bi]))
++                break
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ledger and bank transactions.
++
++    Pairs a ledger tx with a bank tx when amounts are equal (Money equality,
++    currency included) and dates are at most ``max_days`` days apart. Maximises
++    the number of pairs, then minimises total date distance. Each transaction
++    is used in at most one pair.
++
++    Returns a :class:`Reconciliation` whose ``matched`` list is ordered by the
++    ledger transactions' input order.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_by_amount = defaultdict(list)
++    for i, tx in enumerate(ledger_txs):
++        ledger_by_amount[tx.amount].append(i)
++    bank_by_amount = defaultdict(list)
++    for j, tx in enumerate(bank_txs):
++        bank_by_amount[tx.amount].append(j)
++
++    pairs = []
++    for amount, l_idx in ledger_by_amount.items():
++        b_idx = bank_by_amount.get(amount)
++        if not b_idx:
++            continue
++        _match_group(l_idx, b_idx, ledger_txs, bank_txs, max_days, pairs)
++
++    pairs.sort(key=lambda p: p[0])
++    matched = [(ledger_txs[i], bank_txs[j]) for i, j in pairs]
++
++    matched_ledger = {i for i, _ in pairs}
++    matched_bank = {j for _, j in pairs}
++    unmatched_ledger = [tx for i, tx in enumerate(ledger_txs) if i not in matched_ledger]
++    unmatched_bank = [tx for j, tx in enumerate(bank_txs) if j not in matched_bank]
++
++    return Reconciliation(
++        matched=matched,
++        unmatched_ledger=unmatched_ledger,
++        unmatched_bank=unmatched_bank,
++    )
+diff --git a/tests/test_reconcile.py b/tests/test_reconcile.py
+new file mode 100644
+index 0000000..cd75a5a
+--- /dev/null
++++ b/tests/test_reconcile.py
+@@ -0,0 +1,78 @@
++from datetime import date, timedelta
++from ledger import Money, Transaction
++from ledger.reconcile import reconcile
++
++
++def tx(day, amount, desc="x"):
++    return Transaction(date=date(2026, 1, 1) + timedelta(days=day), description=desc,
++                       amount=Money(amount), category="c")
++
++
++def test_empty():
++    r = reconcile([], [])
++    assert r.matched == [] and r.unmatched_ledger == [] and r.unmatched_bank == []
++
++
++def test_simple_match():
++    l = [tx(0, "10.00")]
++    b = [tx(1, "10.00")]
++    r = reconcile(l, b)
++    assert r.matched == [(l[0], b[0])]
++    assert r.unmatched_ledger == [] and r.unmatched_bank == []
++
++
++def test_amount_must_be_equal_and_currency():
++    l = [tx(0, "10.00"), tx(0, "5.00", "c") ]
++    l[1] = Transaction(date=l[1].date, description="c", amount=Money("5.00", "EUR"), category="c")
++    b = [tx(0, "10.01"), tx(0, "5.00")]
++    r = reconcile(l, b)
++    assert len(r.matched) == 0
++    assert len(r.unmatched_ledger) == 2 and len(r.unmatched_bank) == 2
++
++
++def test_max_days_boundary():
++    l = [tx(0, "10.00")]
++    b = [tx(3, "10.00")]
++    assert len(reconcile(l, b, max_days=3).matched) == 1
++    assert len(reconcile(l, b, max_days=2).matched) == 0
++
++
++def test_either_direction():
++    l = [tx(5, "10.00")]
++    b = [tx(2, "10.00")]
++    assert len(reconcile(l, b, max_days=3).matched) == 1
++
++
++def test_maximise_pairs():
++    # Greedy-by-closest could waste a bank tx and lose a pair.
++    l = [tx(0, "1.00"), tx(1, "1.00")]
++    b = [tx(1, "1.00"), tx(4, "1.00")]
++    r = reconcile(l, b, max_days=3)
++    assert len(r.matched) == 2
++
++
++def test_minimise_distance_given_max_pairs():
++    l = [tx(0, "1.00"), tx(2, "1.00")]
++    b = [tx(0, "1.00"), tx(2, "1.00")]
++    r = reconcile(l, b, max_days=3)
++    assert len(r.matched) == 2
++    assert sum(abs((a.date - c.date).days) for a, c in r.matched) == 0
++
++
++def test_matched_ordered_by_ledger_and_unmatched_keep_order():
++    l = [tx(0, "1.00", "a"), tx(0, "2.00", "b"), tx(0, "3.00", "c")]
++    b = [tx(1, "3.00"), tx(1, "1.00")]
++    r = reconcile(l, b)
++    assert [a.description for a, _ in r.matched] == ["a", "c"]
++    assert [t.description for t in r.unmatched_ledger] == ["b"]
++    assert [t.amount for t in r.unmatched_bank] == []
++
++
++def test_identical_transactions_are_distinct():
++    l = [tx(0, "1.00", "same"), tx(0, "1.00", "same")]
++    b = [tx(0, "1.00", "same"), tx(0, "1.00", "same"), tx(0, "1.00", "same")]
++    r = reconcile(l, b)
++    assert len(r.matched) == 2
++    assert len(r.unmatched_bank) == 1
++    ids = [id(a) for a, _ in r.matched]
++    assert len(set(ids)) == 2

@@ -1,0 +1,8 @@
+I'll start by exploring the codebase to understand the existing structure.
+Done. All 4 tests pass.
+
+`ledger/report.py` now has:
+- `group_by_month` — month-keyed lists preserving order, sorted keys
+- `totals_by_category` — category-to-`Money` sums
+- `monthly_summary` — rewritten using both, identical output
+- `category_share` — spending fractions by category, omitting non-spending categories, `{}` when no spending

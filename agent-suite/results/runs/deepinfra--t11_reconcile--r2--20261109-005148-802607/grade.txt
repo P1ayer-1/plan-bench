@@ -1,0 +1,32 @@
+g.randint(0, 6))]
+>           assert check(reconcile(L, B), L, B) == brute(L, B)
+E           assert (0, 0) == (1, 1)
+E             
+E             At index 0 diff: 0 != 1
+E             Use -v to get more diff
+
+_hidden_test_t11_reconcile.py:91: AssertionError
+_______________________________ test_performance _______________________________
+
+    def test_performance():
+        rng = random.Random(1)
+        amounts = [str(-(i + 1)) for i in range(60)]
+        L = [tx(rng.randint(0, 200), rng.choice(amounts)) for _ in range(3000)]
+        B = [tx(rng.randint(0, 200), rng.choice(amounts)) for _ in range(3000)]
+        t = time.perf_counter()
+        res = reconcile(L, B)
+        elapsed = time.perf_counter() - t
+        n, _ = check(res, L, B)
+>       assert n > 0
+E       assert 0 > 0
+
+_hidden_test_t11_reconcile.py:103: AssertionError
+=========================== short test summary info ============================
+FAILED _hidden_test_t11_reconcile.py::test_basic - assert (0, 0) == (2, 1)
+FAILED _hidden_test_t11_reconcile.py::test_max_days_boundary - assert (0, 0) ...
+FAILED _hidden_test_t11_reconcile.py::test_greedy_closest_loses_a_pair - asse...
+FAILED _hidden_test_t11_reconcile.py::test_greedy_in_order_is_not_minimal - a...
+FAILED _hidden_test_t11_reconcile.py::test_duplicates_are_separate - IndexErr...
+FAILED _hidden_test_t11_reconcile.py::test_random_against_brute_force - asser...
+FAILED _hidden_test_t11_reconcile.py::test_performance - assert 0 > 0
+7 failed, 1 passed in 5.07s

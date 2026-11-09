@@ -1,0 +1,7 @@
+Implemented `ledger/fx.py` with `RateTable` and `convert`, plus `Ledger.balance_in`.
+
+- Exact `Decimal` storage (no float), latest-rate lookup, inverse, and USD fallback.
+- `convert` rounds once; `balance_in` sums unrounded amounts and rounds once at the end.
+- Exported `RateTable`/`convert` from `ledger`.
+
+`python -m pytest -q`: 4 passed.

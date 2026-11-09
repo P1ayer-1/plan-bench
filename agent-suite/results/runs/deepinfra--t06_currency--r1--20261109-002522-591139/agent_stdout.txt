@@ -1,0 +1,8 @@
+Now CLI: balance isn't printed currently, but summary keys may be tuples. Update formatting.
+All 9 tests pass. Changes:
+
+- `ledger/money.py`: `CurrencyMismatch(ValueError)`; `+`, `-`, `<` raise it on mismatched currencies.
+- `ledger/ledger.py:34`: `balance()` returns `{currency: Money}`, `{}` when empty.
+- `ledger/report.py`: per-month mixed-currency grouping uses `(category, currency)` keys, single-currency months keep plain keys.
+- `ledger/cli.py`: handles tuple keys and adds a `balance` subcommand.
+- Exported `CurrencyMismatch` from `ledger/__init__.py`.

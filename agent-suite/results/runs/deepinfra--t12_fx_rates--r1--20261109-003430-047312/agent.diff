@@ -1,0 +1,79 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..a74570d
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,73 @@
++from decimal import Decimal, ROUND_HALF_UP, getcontext
++
++CENT = Decimal("0.01")
++_CTX = getcontext()
++_CTX.prec = max(_CTX.prec, 28)
++
++
++class RateTable:
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        exact = Decimal(str(rate))
++        series = self._rates.setdefault((base, quote), {})
++        series[on] = exact
++        return self
++
++    def _direct(self, base, quote, on):
++        series = self._rates.get((base, quote))
++        if not series:
++            return None
++        candidates = [d for d in series if d <= on]
++        if not candidates:
++            return None
++        return series[max(candidates)]
++
++    def _leg(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        direct = self._direct(base, quote, on)
++        if direct is not None:
++            return direct
++        inverse = self._direct(quote, base, on)
++        if inverse is not None:
++            return Decimal(1) / inverse
++        return None
++
++    def rate(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        leg = self._leg(base, quote, on)
++        if leg is not None:
++            return leg
++        left = self._leg(base, "USD", on)
++        right = self._leg("USD", quote, on)
++        if left is not None and right is not None:
++            return left * right
++        raise KeyError((base, quote, on))
++
++
++def convert(money, to, table, on):
++    from .money import Money
++
++    rate = table.rate(money.currency, to, on)
++    amount = money.amount * rate
++    return Money(amount.quantize(CENT, rounding=ROUND_HALF_UP), to)
++
++
++def _balance_in(self, currency, table, on=None):
++    from .money import Money
++
++    total = Decimal(0)
++    for tx in self.transactions:
++        when = on if on is not None else tx.date
++        rate = table.rate(tx.amount.currency, currency, when)
++        total += tx.amount.amount * rate
++    amount = total.quantize(CENT, rounding=ROUND_HALF_UP)
++    return Money(amount, currency)
++
++
++from .ledger import Ledger
++
++Ledger.balance_in = _balance_in

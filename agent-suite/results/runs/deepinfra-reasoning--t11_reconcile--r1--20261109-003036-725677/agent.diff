@@ -1,0 +1,122 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..2a3649a
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,116 @@
++from dataclasses import dataclass
++
++
++@dataclass
++class Reconciliation:
++    matched: list
++    unmatched_ledger: list
++    unmatched_bank: list
++
++
++def _date_distance(a, b):
++    return abs((a.date - b.date).days)
++
++
++def _min_cost_matching(ledger_indices, bank_indices, ledger_txs, bank_txs, max_days):
++    """Return a maximum-cardinality, minimum-total-distance matching.
++
++    All transactions passed here have the same amount.  Sorting both sides by
++    date lets the problem be solved as an order-preserving matching: any
++    crossing pairs can be uncrossed without reducing the number of pairs or
++    increasing the total distance.
++    """
++    n = len(ledger_indices)
++    m = len(bank_indices)
++    if n == 0 or m == 0:
++        return []
++
++    ledger_indices = sorted(ledger_indices, key=lambda i: ledger_txs[i].date)
++    bank_indices = sorted(bank_indices, key=lambda i: bank_txs[i].date)
++
++    count = [[0] * (m + 1) for _ in range(n + 1)]
++    cost = [[0] * (m + 1) for _ in range(n + 1)]
++    parent = [[None] * (m + 1) for _ in range(n + 1)]
++
++    for i in range(1, n + 1):
++        tx = ledger_txs[ledger_indices[i - 1]]
++        for j in range(1, m + 1):
++            best_count = count[i - 1][j]
++            best_cost = cost[i - 1][j]
++            best_move = "ledger"
++
++            c = count[i][j - 1]
++            d = cost[i][j - 1]
++            if c > best_count or (c == best_count and d < best_cost):
++                best_count, best_cost, best_move = c, d, "bank"
++
++            dist = _date_distance(tx, bank_txs[bank_indices[j - 1]])
++            if dist <= max_days:
++                c = count[i - 1][j - 1] + 1
++                d = cost[i - 1][j - 1] + dist
++                if c > best_count or (c == best_count and d < best_cost):
++                    best_count, best_cost, best_move = c, d, "pair"
++
++            count[i][j] = best_count
++            cost[i][j] = best_cost
++            parent[i][j] = best_move
++
++    matched = []
++    i, j = n, m
++    while i > 0 and j > 0:
++        move = parent[i][j]
++        if move == "pair":
++            matched.append((ledger_indices[i - 1], bank_indices[j - 1]))
++            i -= 1
++            j -= 1
++        elif move == "ledger":
++            i -= 1
++        else:
++            j -= 1
++
++    return matched
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ledger transactions against bank transactions.
++
++    Transactions are paired only when their amounts (including currency) are
++    equal and their dates differ by at most ``max_days`` days.  The pairing
++    maximises the number of pairs, then minimises the total date distance.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_by_amount = {}
++    for i, tx in enumerate(ledger_txs):
++        ledger_by_amount.setdefault(tx.amount, []).append(i)
++
++    bank_by_amount = {}
++    for i, tx in enumerate(bank_txs):
++        bank_by_amount.setdefault(tx.amount, []).append(i)
++
++    pairs = []
++    for amount, ledger_indices in ledger_by_amount.items():
++        bank_indices = bank_by_amount.get(amount)
++        if not bank_indices:
++            continue
++        pairs.extend(
++            _min_cost_matching(
++                ledger_indices, bank_indices, ledger_txs, bank_txs, max_days
++            )
++        )
++
++    pairs.sort(key=lambda pair: pair[0])
++
++    matched_ledger = {li for li, _ in pairs}
++    matched_bank = {bi for _, bi in pairs}
++
++    return Reconciliation(
++        matched=[(ledger_txs[li], bank_txs[bi]) for li, bi in pairs],
++        unmatched_ledger=[
++            tx for i, tx in enumerate(ledger_txs) if i not in matched_ledger
++        ],
++        unmatched_bank=[
++            tx for i, tx in enumerate(bank_txs) if i not in matched_bank
++        ],
++    )

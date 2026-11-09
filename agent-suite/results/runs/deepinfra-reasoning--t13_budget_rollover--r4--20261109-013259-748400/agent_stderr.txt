@@ -1,0 +1,244 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -type f -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:32 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:33 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 677 Nov  9 01:33 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m$ [0mgit status && git log --oneline -5
+On branch master
+nothing to commit, working tree clean
+6c3e95b base
+[0m
+[0m$ [0mls -la ledger tests && cat README.md && cat ledger/__init__.py
+ledger:
+total 3072
+drwxrwxrwx 1 root root  512 Nov  8 19:08 .
+drwxrwxrwx 1 root root  512 Nov  8 18:47 ..
+-rwxrwxrwx 1 root root   65 Nov  8 18:47 __init__.py
+-rwxrwxrwx 1 root root  715 Nov  8 18:47 cli.py
+-rwxrwxrwx 1 root root 1504 Nov  8 18:47 ledger.py
+-rwxrwxrwx 1 root root 1405 Nov  8 18:47 money.py
+-rwxrwxrwx 1 root root  917 Nov  8 18:47 parser.py
+-rwxrwxrwx 1 root root  763 Nov  8 18:47 report.py
+
+tests:
+total 512
+drwxrwxrwx 1 root root 512 Nov  8 19:08 .
+drwxrwxrwx 1 root root 512 Nov  8 18:47 ..
+-rwxrwxrwx 1 root root 850 Nov  8 18:47 test_basic.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+from .money import Money
+from .ledger import Ledger, Transaction
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/cli.py
+[0m
+[0m$ [0mcat opencode.json; python --version; python -m pytest -q
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/deepinfra-reasoning/run/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+          "name": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "small_model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+}Python 3.11.2
+....                                                                     [100%]
+4 passed in 0.31s
+[0m
+[0m← [0mWrite ledger/budget.py
+Wrote file successfully.
+[0m
+[0m→ [0mRead ledger/budget.py
+[0m
+[0m$ [0msed -n '60,70p' ledger/budget.py
+for category, budget in budgets.items():
+            carried_in = carried[category]
+            spent_amount = -spent.get(
+                (index, category), Money.zero(budget.currency)
+            )
+            available = budget + carried_in
+            remaining = available - spent_amount
+            rows[category] = {
+                "budget": budget,
+                "carried_in": carried_in,
+                "spent": spent_amount,
+[0m
+[0m$ [0mgrep -n "remaining =" ledger/budget.py
+66:            remaining = available - spent_amount
+[0m
+[0m$ [0mpython - <<'PY'
+for i, line in enumerate(open('ledger/budget.py'), 1):
+    if i == 66:
+        print(repr(line))
+PY
+'            remaining = available - spent_amount\n'
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.budget import budget_report
+
+def tx(d, a, c='food', cur='USD'):
+    return Transaction(date.fromisoformat(d), 'x', Money(a, cur), c)
+
+l = Ledger([
+    tx('2026-01-05', '-60'),
+    tx('2026-02-05', '-50'),
+    tx('2026-03-05', '-30'),
+    tx('2026-02-10', '10'),
+    tx('2025-12-31', '-999'),
+    tx('2026-04-01', '-999'),
+    tx('2026-02-11', '-500', 'other'),
+])
+b = {'food': Money('100')}
+r = budget_report(l, b, '2026-01', '2026-04')
+for m, cats in r.items():
+    row = cats['food']
+    print(m, {k: str(v) for k,v in row.items()})
+
+print('cap')
+r = budget_report(l, b, '2026-01', '2026-03', Money('20'))
+for m, cats in r.items():
+    print(m, cats['food']['carried_in'], cats['food']['remaining'])
+
+for bad in ['2026-1', '2026-13', '2026-00', 'abcd-01', '2026/01', '202601']:
+    try:
+        budget_report(l, b, bad, '2026-02')
+        print('FAIL', bad)
+    except ValueError:
+        pass
+try:
+    budget_report(l, b, '2026-03', '2026-02')
+    print('FAIL order')
+except ValueError:
+    pass
+try:
+    budget_report(Ledger([tx('2026-01-05','-1','food','EUR')]), b, '2026-01','2026-02')
+    print('FAIL currency')
+except ValueError:
+    pass
+print('ok')
+PY
+python -m pytest -q
+2026-01 {'budget': '100.00 USD', 'carried_in': '0.00 USD', 'spent': '60.00 USD', 'available': '100.00 USD', 'remaining': '40.00 USD'}
+2026-02 {'budget': '100.00 USD', 'carried_in': '40.00 USD', 'spent': '40.00 USD', 'available': '140.00 USD', 'remaining': '100.00 USD'}
+2026-03 {'budget': '100.00 USD', 'carried_in': '100.00 USD', 'spent': '30.00 USD', 'available': '200.00 USD', 'remaining': '170.00 USD'}
+2026-04 {'budget': '100.00 USD', 'carried_in': '170.00 USD', 'spent': '999.00 USD', 'available': '270.00 USD', 'remaining': '-729.00 USD'}
+cap
+2026-01 0.00 USD 40.00 USD
+2026-02 20.00 USD 80.00 USD
+2026-03 20.00 USD 90.00 USD
+ok
+....                                                                     [100%]
+4 passed in 0.23s
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/__init__.py
++++ /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .budget import budget_report
+
+[0m
+[0m$ [0mpython -m pytest -q && python -m py_compile ledger/budget.py && git diff --stat
+....                                                                     [100%]
+4 passed in 3.64s
+ ledger/__init__.py | 1 +
+ 1 file changed, 1 insertion(+)
+[0m
+[0m← [0mEdit ledger/budget.py
+Index: /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
++++ /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
+@@ -2,9 +2,9 @@
+ 
+ from .money import Money
+ 
+ 
+-_MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
++_MONTH_RE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])")
+ 
+ 
+ def _parse_month(value):
+     if not isinstance(value, str) or _MONTH_RE.fullmatch(value) is None:
+
+[0m
+[0m$ [0mpython -m pytest -q && git status --short
+....                                                                     [100%]
+4 passed in 0.21s
+ M ledger/__init__.py
+?? ledger/__pycache__/
+?? ledger/budget.py
+[0m
+[0m$ [0mfind . -type d -name __pycache__ -prune -exec rm -rf {} + && git status --short && python -m pytest -q
+M ledger/__init__.py
+?? ledger/budget.py
+....                                                                     [100%]
+4 passed in 0.17s
+[0m
+[0m← [0mEdit ledger/budget.py
+Index: /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
++++ /suite/results/runs/deepinfra-reasoning--t13_budget_rollover--r4--20261109-013259-748400/ws/ledger/budget.py
+@@ -74,9 +74,11 @@
+ 
+         next_carried = remaining
+         if next_carried.amount < 0:
+             next_carried = Money.zero(budget.currency)
+-        if rollover_cap is not None and next_carried.amount > rollover_cap.amount:
+-            next_carried = Money(rollover_cap.amount, budget.currency)
++        if rollover_cap is not None:
++            cap = max(rollover_cap.amount, Money.zero().amount)
++            if next_carried.amount > cap:
++                next_carried = Money(cap, budget.currency)
+         carried[category] = next_carried
+     result[month] = rows
+ return result
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 5.93s
+[0m

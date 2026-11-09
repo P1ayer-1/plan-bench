@@ -1,0 +1,737 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R | head -50 && cat *.md 2>/dev/null | head -50
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat ledger/ledger.py ledger/__init__.py ledger/money.py
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+[0m
+[0m$ [0mcat tests/test_basic.py ledger/parser.py | head -100
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+[0m
+[0m← [0mWrite ledger/search.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
+@@ -1,7 +1,8 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import search as _search
+ 
+ 
+ @dataclass(frozen=True)
+ class Transaction:
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py
+@@ -32,8 +32,12 @@
+             continue
+         out.append(tx)
+     return out
+ 
++def search(self, query):
++    """Return transactions matching a search query, preserving order."""
++    return _search(self.transactions, query)
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'EOF'
+from ledger import *
+from ledger.parser import parse_csv
+from datetime import date
+CSV="""date,description,amount,category,tags
+2026-01-03,Coffee shop,-4.50,food,morning;work
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+l=Ledger(parse_csv(CSV))
+print([t.description for t in l.search('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5')])
+print([t.description for t in l.search('amount < -20')])
+print([t.description for t in l.search('date>=2026-01-15')])
+print([t.description for t in l.search('')])
+for q in ['foo:bar','(category:food','category:food AND','OR tag:x','NOT','amount=abc','date>=2026-13-01','desc:"x','()','amount<']:
+    try: l.search(q); print("NO ERROR",q)
+    except ValueError: pass
+print("errors ok")
+print([t.description for t in l.search('category:FOOD')])
+EOF
+....                                                                     [100%]
+4 passed in 0.39s
+Traceback (most recent call last):
+  File "<stdin>", line 10, in <module>
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py", line 38, in search
+    return _search(self.transactions, query)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 249, in search
+    predicate = compile_query(query)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 245, in compile_query
+    return _Parser(tokens).parse()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 98, in parse
+    node = self.parse_or()
+           ^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 104, in parse_or
+    node = self.parse_and()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 115, in parse_and
+    node = self.parse_not()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 136, in parse_not
+    return self.parse_atom()
+           ^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 156, in parse_atom
+    return _parse_term(tok.value)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 192, in _parse_term
+    raise ValueError(f"missing value for {field}")
+ValueError: missing value for desc
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+@@ -31,8 +31,20 @@
+ c = query[i]
+ if c.isspace():
+     i += 1
+     continue
++if c == ":" or c in "<>=":
++    if c == ":":
++        tokens.append(_Token("colon"))
++    else:
++        op = c
++        if c in "<>" and i + 1 < n and query[i + 1] == "=":
++            op = c + "="
++        tokens.append(_Token("op", op))
++        i += len(op)
++        continue
++    i += 1
++    continue
+ if c == "(" or c == ")":
+     tokens.append(_Token(c))
+     i += 1
+     continue
+
+[0m
+[0m$ [0mpython - <<'EOF'
+import re
+p='ledger/search.py'
+s=open(p).read()
+s=s.replace('''            elif tok.kind in ("not", "(", "value", "word"):''','''            elif tok.kind in ("not", "(", "value", "word"):''')
+open(p,'w').write(s)
+EOF
+sed -n '110,220p' ledger/search.py
+node = self.parse_or()
+        if self.peek() is not None:
+            raise ValueError(f"unexpected token: {self.peek()!r}")
+        return node
+
+    def parse_or(self):
+        node = self.parse_and()
+        while True:
+            tok = self.peek()
+            if tok is not None and tok.kind == "or":
+                self.next()
+                right = self.parse_and()
+                node = _or(node, right)
+            else:
+                return node
+
+    def parse_and(self):
+        node = self.parse_not()
+        while True:
+            tok = self.peek()
+            if tok is None:
+                return node
+            if tok.kind == "and":
+                self.next()
+                right = self.parse_not()
+                node = _and(node, right)
+            elif tok.kind in ("not", "(", "value", "word"):
+                right = self.parse_not()
+                node = _and(node, right)
+            else:
+                return node
+
+    def parse_not(self):
+        tok = self.peek()
+        if tok is not None and tok.kind == "not":
+            self.next()
+            operand = self.parse_not()
+            return _not(operand)
+        return self.parse_atom()
+
+    def parse_atom(self):
+        tok = self.peek()
+        if tok is None:
+            raise ValueError("missing operand")
+        if tok.kind == "(":
+            self.next()
+            nxt = self.peek()
+            if nxt is not None and nxt.kind == ")":
+                raise ValueError("empty group")
+            node = self.parse_or()
+            closing = self.peek()
+            if closing is None or closing.kind != ")":
+                raise ValueError("unbalanced parentheses")
+            self.next()
+            return node
+        if tok.kind in ("value", "word"):
+            self.next()
+            if tok.kind == "word":
+                return _parse_term(tok.value)
+            raise ValueError(f"unexpected value: {tok.value!r}")
+        raise ValueError(f"unexpected token: {tok.kind!r}")
+
+
+def _or(left, right):
+    return lambda tx: left(tx) or right(tx)
+
+
+def _and(left, right):
+    return lambda tx: left(tx) and right(tx)
+
+
+def _not(operand):
+    return lambda tx: not operand(tx)
+
+
+def _parse_op(text):
+    for op in _OPS:
+        if text.startswith(op):
+            rest = text[len(op):]
+            if rest == "":
+                raise ValueError("bad operator")
+            return op, rest
+    raise ValueError("bad operator")
+
+
+def _parse_term(word):
+    if ":" in word:
+        idx = word.index(":")
+        field = word[:idx]
+        value = word[idx + 1:]
+        if field not in _FIELDS or field in ("amount", "date"):
+            if field not in ("category", "tag", "desc"):
+                raise ValueError(f"unknown field: {field}")
+        if value == "":
+            raise ValueError(f"missing value for {field}")
+        if field in ("amount", "date"):
+            raise ValueError("use an operator with amount/date")
+        if field == "category":
+            lv = value.lower()
+            return lambda tx: tx.category.lower() == lv
+        if field == "tag":
+            lv = value.lower()
+            return lambda tx: any(t.lower() == lv for t in tx.tags)
+        lv = value.lower()
+        return lambda tx: lv in tx.description.lower()
+
+    idx = None
+    for i, c in enumerate(word):
+        if c in "<>=":
+            idx = i
+            break
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+@@ -135,8 +135,10 @@
+             node = _and(node, right)
+         elif tok.kind in ("not", "(", "value", "word"):
+             right = self.parse_not()
+             node = _and(node, right)
++        elif tok.kind == "op":
++            raise ValueError("operator without a field")
+         else:
+             return node
+ 
+ def parse_not(self):
+
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+@@ -163,16 +163,38 @@
+             if closing is None or closing.kind != ")":
+                 raise ValueError("unbalanced parentheses")
+             self.next()
+             return node
+-        if tok.kind in ("value", "word"):
++        if tok.kind in ("value", "colon", "op"):
++            raise ValueError(f"unexpected token: {tok.kind!r}")
++        if tok.kind == "word":
+             self.next()
+-            if tok.kind == "word":
+-                return _parse_term(tok.value)
+-            raise ValueError(f"unexpected value: {tok.value!r}")
++            return self.parse_term(tok.value)
+         raise ValueError(f"unexpected token: {tok.kind!r}")
+ 
++    def parse_term(self, field):
++        if field not in _FIELDS:
++            raise ValueError(f"unknown field: {field}")
++        tok = self.peek()
++        if field in ("amount", "date"):
++            if tok is None or tok.kind != "op":
++                raise ValueError(f"missing operator for {field}")
++            self.next()
++            num_tok = self.peek()
++            if num_tok is None or num_tok.kind not in ("word", "value"):
++                raise ValueError(f"missing number for {field}")
++            self.next()
++            return _compare_term(field, tok.value, num_tok.value)
++        if tok is None or tok.kind != "colon":
++            raise ValueError(f"missing ':' after {field}")
++        self.next()
++        val_tok = self.peek()
++        if val_tok is None or val_tok.kind not in ("value", "word"):
++            raise ValueError(f"missing value for {field}")
++        self.next()
++        return _match_term(field, val_tok.value)
+ 
++
+ def _or(left, right):
+     return lambda tx: left(tx) or right(tx)
+ 
+ 
+
+[0m
+[0m$ [0mpython - <<'EOF'
+p='ledger/search.py'
+s=open(p).read()
+i=s.index('def _parse_term(word):')
+j=s.index('def _compare(getter, op, target):')
+new='''def _match_term(field, value):
+    if field == "category":
+        lv = value.lower()
+        return lambda tx: tx.category.lower() == lv
+    if field == "tag":
+        lv = value.lower()
+        return lambda tx: any(t.lower() == lv for t in tx.tags)
+    lv = value.lower()
+    return lambda tx: lv in tx.description.lower()
+
+
+def _compare_term(field, op, number):
+    if op not in _OPS:
+        raise ValueError(f"bad operator: {op}")
+    if field == "amount":
+        try:
+            target = Decimal(number)
+        except InvalidOperation:
+            raise ValueError(f"invalid number: {number}") from None
+        if not target.is_finite():
+            raise ValueError(f"invalid number: {number}")
+        return _compare(lambda tx: tx.amount.amount, op, target)
+    try:
+        target = date.fromisoformat(number)
+    except ValueError:
+        raise ValueError(f"invalid date: {number}") from None
+    return _compare(lambda tx: tx.date, op, target)
+
+
+'''
+s=s[:i]+new+s[j:]
+open(p,'w').write(s)
+EOF
+python -m pytest -q && python - <<'EOF'
+from ledger import *
+from ledger.parser import parse_csv
+CSV="""date,description,amount,category,tags
+2026-01-03,Coffee shop,-4.50,food,morning;work
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+l=Ledger(parse_csv(CSV))
+print([t.description for t in l.search('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5')])
+print([t.description for t in l.search('amount < -20')])
+print([t.description for t in l.search('date>=2026-01-15')])
+print([t.description for t in l.search('')])
+print([t.description for t in l.search('amount>=10.50')])
+for q in ['foo:bar','(category:food','category:food AND','OR tag:x','NOT','amount=abc','date>=2026-13-01','desc:"x','()','amount<','category food','amount=0=1','category:food)']:
+    try: l.search(q); print("NO ERROR",q)
+    except ValueError: pass
+print([t.description for t in l.search('category:FOOD')])
+print([t.description for t in l.search('category:food tag:work'), 'extra'])
+EOF
+....                                                                     [100%]
+4 passed in 0.24s
+  File "<stdin>", line 18
+    print([t.description for t in l.search('category:food tag:work'), 'extra'])
+                                                                    ^
+SyntaxError: invalid syntax
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import *
+from ledger.parser import parse_csv
+CSV="""date,description,amount,category,tags
+2026-01-03,Coffee shop,-4.50,food,morning;work
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+l=Ledger(parse_csv(CSV))
+print([t.description for t in l.search('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5')])
+print([t.description for t in l.search('amount < -20')])
+print([t.description for t in l.search('date>=2026-01-15')])
+print(len(l.search('')))
+print([t.description for t in l.search('amount>=10.50')])
+for q in ['foo:bar','(category:food','category:food AND','OR tag:x','NOT','amount=abc','date>=2026-13-01','desc:"x','()','amount<','category food','amount=0=1','category:food)']:
+    try: l.search(q); print("NO ERROR",q)
+    except ValueError: pass
+print([t.description for t in l.search('category:FOOD')])
+print([t.description for t in l.search('category:food tag:work')])
+print([t.description for t in l.search('desc:"a\\"b"')])
+EOF
+Traceback (most recent call last):
+  File "<stdin>", line 9, in <module>
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/ledger.py", line 38, in search
+    return _search(self.transactions, query)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 267, in search
+    predicate = compile_query(query)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 263, in compile_query
+    return _Parser(tokens).parse()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 110, in parse
+    node = self.parse_or()
+           ^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 116, in parse_or
+    node = self.parse_and()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 127, in parse_and
+    node = self.parse_not()
+           ^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 150, in parse_not
+    return self.parse_atom()
+           ^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 171, in parse_atom
+    return self.parse_term(tok.value)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py", line 176, in parse_term
+    raise ValueError(f"unknown field: {field}")
+ValueError: unknown field: desc:
+[0m
+[0m$ [0mgrep -n 'if c == ":"\|elif tok.kind\|tok.kind in ("not"' ledger/search.py
+35:        if c == ":" or c in "<>=":
+36:            if c == ":":
+136:            elif tok.kind in ("not", "(", "value", "word"):
+139:            elif tok.kind == "op":
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger.search import _tokenize
+print(_tokenize('desc:"x"'))
+EOF
+[_Token('word', 'desc:'), _Token('value', 'x')]
+[0m
+[0m→ [0mRead ledger/search.py[90m [offset=45, limit=50][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
++++ /suite/results/runs/deepinfra--t10_query_dsl--r4--20261109-012745-782671/ws/ledger/search.py
+@@ -78,9 +78,9 @@
+         raise ValueError("unterminated quote")
+     tokens.append(_Token("value", "".join(buf)))
+     continue
+ start = i
+-while i < n and not query[i].isspace() and query[i] not in '()"':
++while i < n and not query[i].isspace() and query[i] not in '()":<>=*!~':
+     i += 1
+ word = query[start:i]
+ low = word.lower()
+ if low in _KEYWORDS and ":" not in word:
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger.search import _tokenize
+for q in ['amount<-20','amount >= 10.50','amount < -20','date>=2026-01-01','desc:"a b"']:
+    print(q,_tokenize(q))
+EOF
+python - <<'EOF'
+from ledger import *
+from ledger.parser import parse_csv
+CSV="""date,description,amount,category,tags
+2026-01-03,Coffee shop,-4.50,food,morning;work
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+l=Ledger(parse_csv(CSV))
+print([t.description for t in l.search('desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5')])
+print([t.description for t in l.search('amount < -20')])
+print([t.description for t in l.search('date>=2026-01-15')])
+print(len(l.search('')))
+print([t.description for t in l.search('amount>=10.50')])
+for q in ['foo:bar','(category:food','category:food AND','OR tag:x','NOT','amount=abc','date>=2026-13-01','desc:"x','()','amount<','category food','amount=0=1','category:food)','amount==5','date:2026-01-01']:
+    try: l.search(q); print("NO ERROR",q)
+    except ValueError: pass
+print([t.description for t in l.search('category:FOOD')])
+print([t.description for t in l.search('category:food tag:work')])
+EOF
+amount<-20 [_Token('word', 'amount'), _Token('op', '<'), _Token('word', '-20')]
+amount >= 10.50 [_Token('word', 'amount'), _Token('op', '>='), _Token('word', '10.50')]
+amount < -20 [_Token('word', 'amount'), _Token('op', '<'), _Token('word', '-20')]
+date>=2026-01-01 [_Token('word', 'date'), _Token('op', '>='), _Token('word', '2026-01-01')]
+desc:"a b" [_Token('word', 'desc'), _Token('colon', None), _Token('value', 'a b')]
+['Coffee shop']
+['Rent']
+['Salary', 'Rent']
+3
+['Salary']
+['Coffee shop']
+['Coffee shop']
+[0m
+[0m$ [0mcat >> tests/test_basic.py <<'EOF'
+
+
+SEARCH_CSV = """date,description,amount,category,tags
+2026-01-03,Coffee Shop,-4.50,food,morning;work
+2026-01-10,Groceries,-25.00,food,home
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def _search(q):
+    l = Ledger(parse_csv(SEARCH_CSV))
+    return [t.description for t in l.search(q)]
+
+
+def test_search_empty():
+    assert len(_search("")) == 4
+    assert len(_search("   ")) == 4
+
+
+def test_search_terms():
+    assert _search("category:FOOD") == ["Coffee Shop", "Groceries"]
+    assert _search("tag:work") == ["Coffee Shop"]
+    assert _search('desc:"coffee shop"') == ["Coffee Shop"]
+    assert _search("amount<-20") == ["Groceries", "Rent"]
+    assert _search("amount < -20") == ["Groceries", "Rent"]
+    assert _search("amount>=10.50") == ["Salary"]
+    assert _search("date>=2026-01-15") == ["Salary", "Rent"]
+
+
+def test_search_operators():
+    assert _search("category:food tag:home") == ["Groceries"]
+    assert _search("category:income OR tag:fixed") == ["Salary", "Rent"]
+    assert _search("NOT category:food date>=2026-01-01") == ["Salary", "Rent"]
+    assert _search("(category:food OR tag:monthly) AND amount<-10") == ["Groceries", "Rent"]
+    q = 'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+    assert _search(q) == ["Coffee Shop", "Groceries"]
+
+
+def test_search_order_preserved():
+    assert _search("category:food OR category:income") == ["Coffee Shop", "Groceries", "Salary"]
+
+
+def test_search_errors():
+    import pytest
+    for q in ["foo:bar", "(category:food", "category:food)", "category:food AND",
+              "OR tag:x", "NOT", "amount=abc", "date>=2026-13-01",
+              'desc:"x', "()", "amount<", "amount==5"]:
+        with pytest.raises(ValueError):
+            _search(q)
+EOF
+python -m pytest -q
+.........                                                                [100%]
+9 passed in 0.28s
+[0m

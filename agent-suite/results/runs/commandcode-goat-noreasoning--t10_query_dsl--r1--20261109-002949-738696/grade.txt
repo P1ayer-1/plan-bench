@@ -1,0 +1,39 @@
+nt<<5", "amount<abc", "date>2026-13-01", 'desc:"unterminated', "()", "amount", "category:",
+    ])
+    def test_errors(q):
+        with pytest.raises(ValueError):
+>           L.search(q)
+
+_hidden_test_t10_query_dsl.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+ledger/ledger.py:25: in search
+    return _search(self, query)
+ledger/search.py:312: in search
+    ast = parse_query(query)
+ledger/search.py:307: in parse_query
+    return _Parser(_tokenize(query)).parse()
+ledger/search.py:208: in parse
+    node = self.parse_or()
+ledger/search.py:214: in parse_or
+    node = self.parse_and()
+ledger/search.py:221: in parse_and
+    node = self.parse_unary()
+ledger/search.py:238: in parse_unary
+    return self.parse_primary()
+ledger/search.py:270: in parse_primary
+    node, self.pos = _parse_field(split[0], self.tokens, self.pos, split[1])
+ledger/search.py:148: in _parse_field
+    value, pos = _read_value(tokens, pos)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tokens = [_Token('WORD', 'category:')], pos = 1
+
+    def _read_value(tokens, pos):
+        """Read a VALUE starting at ``pos``: a bare word or a quoted string."""
+>       tok = tokens[pos]
+E       IndexError: list index out of range
+
+ledger/search.py:118: IndexError
+=========================== short test summary info ============================
+FAILED _hidden_test_t10_query_dsl.py::test_errors[category:] - IndexError: li...
+1 failed, 18 passed in 0.21s

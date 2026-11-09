@@ -1,0 +1,88 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls && grep -rn "def split" .
+README.md
+ledger
+opencode.json
+tests
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m$ [0mls tests && cat tests/*.py
+test_basic.py
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra--t02_split_bug--r4--20261109-011546-651134/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra--t02_split_bug--r4--20261109-011546-651134/ws/ledger/money.py
++++ /suite/results/runs/deepinfra--t02_split_bug--r4--20261109-011546-651134/ws/ledger/money.py
+@@ -37,11 +37,20 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts that sum to the original amount."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    total_cents = int((self.amount / CENT).to_integral_value())
++    sign = -1 if total_cents < 0 else 1
++    magnitude = abs(total_cents)
++    base, remainder = divmod(magnitude, n)
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < remainder else 0)
++        parts.append(Money(sign * cents * CENT, self.currency))
++    return parts
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger import Money
+for a,n in [('10.00',3),('-10.00',3),('0.01',3),('-0.01',3)]:
+    print(a,n,Money(a).split(n))"
+....                                                                     [100%]
+4 passed in 2.37s
+10.00 3 [Money('3.34', 'USD'), Money('3.33', 'USD'), Money('3.33', 'USD')]
+-10.00 3 [Money('-3.34', 'USD'), Money('-3.33', 'USD'), Money('-3.33', 'USD')]
+0.01 3 [Money('0.01', 'USD'), Money('0.00', 'USD'), Money('0.00', 'USD')]
+-0.01 3 [Money('-0.01', 'USD'), Money('0.00', 'USD'), Money('0.00', 'USD')]
+[0m

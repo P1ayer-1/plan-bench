@@ -1,0 +1,4 @@
+I'll start by exploring the codebase.
+Done. All 4 tests pass.
+
+`ledger/report.py` now has `group_by_month`, `totals_by_category`, and `category_share`, with `monthly_summary` built on the first two and unchanged output.

@@ -1,0 +1,2 @@
+I'll explore the CLI structure and tests first.
+Implemented the `balance` command in `ledger/cli.py:17`, supporting `--since`, `--until`, and `--category`. Date validation via argparse exits 2 with a stderr error, and `summary` still works. All 4 tests pass.

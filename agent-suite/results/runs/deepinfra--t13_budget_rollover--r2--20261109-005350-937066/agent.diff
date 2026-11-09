@@ -1,0 +1,95 @@
+diff --git a/ledger/budget.py b/ledger/budget.py
+new file mode 100644
+index 0000000..c6fba74
+--- /dev/null
++++ b/ledger/budget.py
+@@ -0,0 +1,89 @@
++import re
++from .money import Money
++
++_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
++
++
++def _parse_month(value):
++    if not isinstance(value, str):
++        raise ValueError(f"invalid month: {value!r}")
++    match = _MONTH_RE.match(value)
++    if not match:
++        raise ValueError(f"invalid month: {value!r}")
++    year, month = int(match.group(1)), int(match.group(2))
++    if not 1 <= month <= 12:
++        raise ValueError(f"invalid month: {value!r}")
++    return year, month
++
++
++def _month_key(year, month):
++    return f"{year:04d}-{month:02d}"
++
++
++def _next_month(year, month):
++    if month == 12:
++        return year + 1, 1
++    return year, month + 1
++
++
++def budget_report(ledger, budgets, start_month, end_month, rollover_cap=None):
++    """Return {month: {category: row}} for budgeted categories over an
++    inclusive month range, with optional rollover of unspent budget."""
++    start = _parse_month(start_month)
++    end = _parse_month(end_month)
++    if start > end:
++        raise ValueError("start_month must not be after end_month")
++
++    categories = list(budgets)
++    currencies = {cat: budgets[cat].currency for cat in categories}
++
++    spent = {}
++    for tx in ledger.transactions:
++        key = (tx.date.year, tx.date.month)
++        mid = _month_key(*key)
++        if mid < start_month or mid > end_month:
++            continue
++        if tx.category not in currencies:
++            continue
++        if tx.amount.currency != currencies[tx.category]:
++            raise ValueError(
++                f"currency mismatch for category {tx.category!r}: "
++                f"expected {currencies[tx.category]}, got {tx.amount.currency}"
++            )
++        month_spent = spent.setdefault(mid, {})
++        month_spent[tx.category] = month_spent.get(tx.category, Money.zero(tx.amount.currency)) - tx.amount
++
++    result = {}
++    carried = {cat: Money.zero(currencies[cat]) for cat in categories}
++
++    year, month = start
++    while (year, month) <= end:
++        mid = _month_key(year, month)
++        month_spent = spent.get(mid, {})
++        rows = {}
++        next_carried = {}
++        for cat in categories:
++            budget = budgets[cat]
++            currency = currencies[cat]
++            cat_spent = month_spent.get(cat, Money.zero(currency))
++            carried_in = carried[cat]
++            available = budget + carried_in
++            remaining = available - cat_spent
++            rows[cat] = {
++                "budget": budget,
++                "carried_in": carried_in,
++                "spent": cat_spent,
++                "available": available,
++                "remaining": remaining,
++            }
++            roll = remaining
++            if roll < Money.zero(currency):
++                roll = Money.zero(currency)
++            if rollover_cap is not None and roll > rollover_cap:
++                roll = rollover_cap
++            next_carried[cat] = roll
++        result[mid] = rows
++        carried = next_carried
++        year, month = _next_month(year, month)
++
++    return result

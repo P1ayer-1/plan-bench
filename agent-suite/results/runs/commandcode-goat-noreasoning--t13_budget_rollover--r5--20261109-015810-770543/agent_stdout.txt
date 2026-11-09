@@ -1,0 +1,1 @@
+Added `ledger/budget.py` with `budget_report`. All existing tests pass (`4 passed`).

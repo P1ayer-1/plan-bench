@@ -1,0 +1,2 @@
+I'll explore the codebase first.
+Added `balance` to `ledger/cli.py` with inclusive date filters, category filtering, `Balance: <amount> <currency>` output, and argparse date validation (stderr + exit 2). Existing `summary` unchanged; all 4 tests pass.

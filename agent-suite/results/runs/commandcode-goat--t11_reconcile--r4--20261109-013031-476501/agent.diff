@@ -1,0 +1,98 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..93483ea
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,92 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _group_by_amount(transactions):
++    groups = {}
++    for index, tx in enumerate(transactions):
++        groups.setdefault(tx.amount, []).append(index)
++    return groups
++
++
++def _match_group(ledger_txs, ledger_indices, bank_txs, bank_indices, max_days):
++    ledger = sorted(ledger_indices, key=lambda index: ledger_txs[index].date)
++    bank = sorted(bank_indices, key=lambda index: bank_txs[index].date)
++    n, m = len(ledger), len(bank)
++    dp = [[(0, 0)] * (m + 1) for _ in range(n + 1)]
++
++    for i in range(1, n + 1):
++        ledger_date = ledger_txs[ledger[i - 1]].date
++        row = dp[i]
++        previous_row = dp[i - 1]
++        for j in range(1, m + 1):
++            best = previous_row[j]
++            skip_bank = row[j - 1]
++            if skip_bank > best:
++                best = skip_bank
++            distance = abs((ledger_date - bank_txs[bank[j - 1]].date).days)
++            if distance <= max_days:
++                count, negative_cost = previous_row[j - 1]
++                candidate = (count + 1, negative_cost - distance)
++                if candidate > best:
++                    best = candidate
++            row[j] = best
++
++    pairs = []
++    i, j = n, m
++    while i > 0 and j > 0:
++        current = dp[i][j]
++        distance = abs((ledger_txs[ledger[i - 1]].date - bank_txs[bank[j - 1]].date).days)
++        if distance <= max_days:
++            count, negative_cost = dp[i - 1][j - 1]
++            if (count + 1, negative_cost - distance) == current:
++                pairs.append((ledger[i - 1], bank[j - 1]))
++                i -= 1
++                j -= 1
++                continue
++        if dp[i - 1][j] == current:
++            i -= 1
++        else:
++            j -= 1
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_groups = _group_by_amount(ledger_txs)
++    bank_groups = _group_by_amount(bank_txs)
++
++    matched_indices = []
++    matched_ledger = set()
++    matched_bank = set()
++
++    for amount, ledger_indices in ledger_groups.items():
++        bank_indices = bank_groups.get(amount)
++        if not bank_indices:
++            continue
++        for ledger_index, bank_index in _match_group(
++            ledger_txs, ledger_indices, bank_txs, bank_indices, max_days
++        ):
++            matched_indices.append((ledger_index, bank_index))
++            matched_ledger.add(ledger_index)
++            matched_bank.add(bank_index)
++
++    matched_indices.sort(key=lambda pair: pair[0])
++
++    return Reconciliation(
++        matched=[(ledger_txs[i], bank_txs[j]) for i, j in matched_indices],
++        unmatched_ledger=[
++            tx for i, tx in enumerate(ledger_txs) if i not in matched_ledger
++        ],
++        unmatched_bank=[
++            tx for i, tx in enumerate(bank_txs) if i not in matched_bank
++        ],
++    )

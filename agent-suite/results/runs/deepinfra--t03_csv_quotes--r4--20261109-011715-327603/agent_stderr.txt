@@ -1,0 +1,75 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R . | head -50
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead README.md
+[0m
+[0m← [0mWrite ledger/parser.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/parser.py
+Index: /suite/results/runs/deepinfra--t03_csv_quotes--r4--20261109-011715-327603/ws/ledger/parser.py
+===================================================================
+--- /suite/results/runs/deepinfra--t03_csv_quotes--r4--20261109-011715-327603/ws/ledger/parser.py
++++ /suite/results/runs/deepinfra--t03_csv_quotes--r4--20261109-011715-327603/ws/ledger/parser.py
+@@ -6,22 +6,8 @@
+ 
+ HEADER = ["date", "description", "amount", "category", "tags"]
+ 
+ 
+-def _parse_row(line, line_no):
+-    fields = list(csv.reader([line], skipinitialspace=True))
+-    if not fields:
+-        return []
+-    row = fields[0]
+-    if len(row) == len(HEADER) - 1:
+-        row.append("")
+-    if len(row) != len(HEADER):
+-        raise ValueError(
+-            f"line {line_no}: expected {len(HEADER)} fields, got {len(row)}"
+-        )
+-    return row
+-
+-
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+     tags are separated by ';'. Returns a list of Transaction."""
+     reader = csv.reader(io.StringIO(text))
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger.parser import parse_csv
+s='''date,description,amount,category,tags\r
+2026-03-02,\"Dinner, with friends\",-58.20,food,social\r
+2026-03-03,\"He said \"\"hi\"\"\",-1.00,x\r
+'''
+for t in parse_csv(s): print(t)
+try: parse_csv('date,description,amount,category,tags\na,b,c\n')
+except ValueError as e: print(e)
+"
+....                                                                     [100%]
+4 passed in 0.85s
+Transaction(date=datetime.date(2026, 3, 2), description='Dinner, with friends', amount=Money('-58.20', 'USD'), category='food', tags=('social',))
+Transaction(date=datetime.date(2026, 3, 3), description='He said "hi"', amount=Money('-1.00', 'USD'), category='x', tags=())
+line 2: expected 5 fields, got 3
+[0m

@@ -1,0 +1,2 @@
+Now run the validation again.
+Added `ledger/reconcile.py` with `Reconciliation` and `reconcile()`. It builds a per-amount bipartite candidate graph (dates within `max_days`) and runs a successive-shortest-augmenting-path matching to maximize pair count and minimize total date distance. Verified against brute force on randomized cases and ~3000×3000 inputs in <1s; existing tests pass.

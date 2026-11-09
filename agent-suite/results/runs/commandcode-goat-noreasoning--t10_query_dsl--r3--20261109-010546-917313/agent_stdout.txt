@@ -1,0 +1,14 @@
+I'll create a query module and wire it into `Ledger`.
+Now check edge cases: `amount=0` parsing — tokenizer sees `amount`, `:`, then field in typed branch. But `category:food AND` — category branch reads value `food`; good. Let me test.
+Bug: bare word scanning misses colon terms since `:` breaks the name loop before checks? Actually `amount=0`: `j` advances lowercase letters `amount`, then query[j]='=' not ':', so bare word path. Need detect `:` or OP after name. Fix tokenizer: after lowercase name, allow `:` or operator.
+That's getting messy; let me simplify the logic.
+Correct: `i` is still at position of name, `j` is end. But if rest starts with `<` no idx jump needed. Also `field` variable needs set in elif branch. It is set at line 50 inside `if rest[:1]...`. Good. Remove `if True:`.
+`amount=0`: rest is `=0`, first char `=`. But elif branch requires `j < n`, rest `=0` → field set. Then `i=j+1` skips past `=`! For unspaced OP, op starts at j not j+1. I need to handle: if colon-terminated typed field, op at j+1; if bare-name, op at j.
+I'll introduce a variable `op_start`.
+Now validate error cases properly and run tests.
+Now add tests for the search language.
+All tests pass. Let me quickly review the final search module for dead code.
+Clean up the redundant `j = i` branches:
+Implemented `Ledger.search(query)` in `ledger/ledger.py:29`, backed by a tokenizer/parser/evaluator in `ledger/search.py`.
+
+Supports all specified terms, operators with correct precedence, implicit `AND`, quoted values with escapes, empty-query matching, and `ValueError` for malformed queries. Added `tests/test_search.py`; all 23 tests pass.

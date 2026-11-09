@@ -1,0 +1,145 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..0750109
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,103 @@
++from datetime import date
++from decimal import Decimal, localcontext
++from fractions import Fraction
++
++from .money import Money
++
++
++class RateTable:
++    """Historical exchange rates, looked up by date."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        """Record that from ``on`` onward 1 ``base`` equals ``rate`` ``quote``."""
++        value = _to_decimal(rate)
++        self._rates.setdefault((base, quote), {})[on] = value
++
++    def _latest(self, base, quote, on):
++        rates = self._rates.get((base, quote))
++        if not rates:
++            return None
++        candidates = [d for d in rates if d <= on]
++        if not candidates:
++            return None
++        return rates[max(candidates)]
++
++    def _lookup(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        direct = self._latest(base, quote, on)
++        if direct is not None:
++            return direct
++        reverse = self._latest(quote, base, on)
++        if reverse is not None:
++            with localcontext() as ctx:
++                ctx.prec = max(28, ctx.prec)
++                return Decimal(1) / reverse
++        return None
++
++    def rate(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        result = self._lookup(base, quote, on)
++        if result is not None:
++            return result
++        base_usd = self._lookup(base, "USD", on)
++        usd_quote = self._lookup("USD", quote, on)
++        if base_usd is not None and usd_quote is not None:
++            with localcontext() as ctx:
++                ctx.prec = max(28, ctx.prec)
++                return base_usd * usd_quote
++        raise KeyError((base, quote, on))
++
++
++def _to_decimal(rate):
++    if isinstance(rate, Decimal):
++        return rate
++    if isinstance(rate, (str, int)):
++        return Decimal(rate)
++    if isinstance(rate, float):
++        return Decimal(str(rate))
++    raise TypeError(f"unsupported rate type: {type(rate).__name__}")
++
++
++def _fraction_to_decimal(value):
++    """Convert a Fraction with a finite decimal expansion to an exact Decimal."""
++    if value == 0:
++        return Decimal(0)
++    numerator = value.numerator
++    sign = 1
++    if numerator < 0:
++        sign = -1
++        numerator = -numerator
++    denominator = value.denominator
++    twos = 0
++    fives = 0
++    remainder = denominator
++    while remainder % 2 == 0:
++        remainder //= 2
++        twos += 1
++    while remainder % 5 == 0:
++        remainder //= 5
++        fives += 1
++    if remainder != 1:
++        with localcontext() as ctx:
++            ctx.prec = max(28, len(str(numerator)) + len(str(denominator)) + 10)
++            return Decimal(sign) * (Decimal(numerator) / Decimal(denominator))
++    exponent = max(twos, fives)
++    coefficient = numerator * (10 ** exponent) // denominator
++    digits = tuple(int(c) for c in str(coefficient))
++    return Decimal((0 if sign > 0 else 1, digits, -exponent))
++
++
++def _converted_amount(money, to, table, on):
++    rate = table.rate(money.currency, to, on)
++    return Fraction(money.amount) * Fraction(rate)
++
++
++def convert(money, to, table, on):
++    """Convert ``money`` to ``to`` and round once to the cent."""
++    exact = _converted_amount(money, to, table, on)
++    return Money(_fraction_to_decimal(exact), to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..aa489dc 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,8 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from fractions import Fraction
+ from .money import Money
++from .fx import _converted_amount, _fraction_to_decimal
+ 
+ 
+ @dataclass(frozen=True)
+@@ -38,6 +40,14 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        """Return the ledger total in ``currency``, rounded once at the end."""
++        total = Fraction(0)
++        for tx in self.transactions:
++            when = tx.date if on is None else on
++            total += _converted_amount(tx.amount, currency, table, when)
++        return Money(_fraction_to_decimal(total), currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

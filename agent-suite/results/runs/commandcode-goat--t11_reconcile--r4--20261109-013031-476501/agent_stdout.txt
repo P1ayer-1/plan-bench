@@ -1,0 +1,3 @@
+Added `ledger/reconcile.py` implementing `reconcile` and `Reconciliation`, using per-amount dynamic programming to maximize pairs then minimize total date distance.
+
+`python -m pytest -q` passes: 4 passed.

@@ -1,0 +1,9 @@
+I'll start by exploring the current state of the file and tests.
+Implemented in `ledger/report.py`:
+
+- `group_by_month(transactions)` — sorted `"YYYY-MM"` keys, original transaction order.
+- `totals_by_category(transactions)` — category → summed `Money`.
+- `monthly_summary(ledger)` — now composed from both helpers, output unchanged.
+- `category_share(ledger, month)` — spending fractions by category, omitting non-spending categories and returning `{}` when applicable.
+
+`python -m pytest -q`: **4 passed**.

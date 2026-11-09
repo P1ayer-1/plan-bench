@@ -1,0 +1,7 @@
+I'll start by exploring the existing codebase structure.
+Now I'll create the fx module. I'll use high-precision Decimal context for exact rate computations.
+The USD chaining in `rate()` would recurse infinitely when one leg fails; rule 4 says "each leg looked up with rules 1-3 (no further chaining)". My current implementation can recurse into rule 4 again. Let me restructure with a helper that only applies rules 1-3.
+Now add `balance_in` to `Ledger`. It needs unrounded sums, so compute raw Decimal amounts and round once at the end.
+Now write tests for the new functionality and run the suite.
+My test expectation was wrong: EUR→USD via inverse of 0.5 = 2; USD→JPY via inverse of 0.01 = 100; product = 200. Fix test.
+All 15 tests pass. Added `ledger/fx.py` (`RateTable`, `convert`) and `Ledger.balance_in`, with exact `Decimal` rate arithmetic (50-digit precision) and single-rounding conversion.

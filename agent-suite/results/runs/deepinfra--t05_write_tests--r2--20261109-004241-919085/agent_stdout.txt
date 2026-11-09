@@ -1,0 +1,2 @@
+I fixed a typo in one test name and verified all 29 tests pass.
+Created `tests/test_report.py` with 25 tests covering month grouping, key ordering/zero-padding, sign handling, decimal precision, category isolation, and sorting/limit/sign-filtering in `largest_expenses`. All 29 tests pass.

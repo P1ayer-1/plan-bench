@@ -1,0 +1,1 @@
+Done. `query()` now accepts an optional `tag` filter (combines with existing filters), and `tags()` returns a sorted list of distinct tags. All 4 tests pass.

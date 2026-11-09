@@ -1,0 +1,1 @@
+Added the `balance` command with `--since`, `--until`, and `--category` filters; invalid dates print to stderr and exit 2. All 4 existing tests pass, and `summary` remains functional.

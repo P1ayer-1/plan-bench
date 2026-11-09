@@ -1,0 +1,16 @@
+Now add term parsing after quoted values.
+Let me restructure that section properly.
+That edit got messy. Let me view and clean up the tokenizer.
+The eval is wrong for `<`? Let me check `_cmp`.
+My custom case expectations were wrong (income 3000 > -5). Fix the test expectations and rerun.
+The assertion message printed the query but my expectation was wrong for `<` (Rent -1200 matches). Let me rerun with corrected case.
+Only tag:fixed has one match; expectation should be 1.
+Correct: rent matches both, so 1 unique transaction.
+Correct again (2). Final run with corrected expectation:
+Field names are lowercase per spec, so `DESC:coffee` correctly raises. Remove that case.
+Now let me add tests to the repo and review the final search module for cleanliness.
+I'll rewrite the module more cleanly, since the current tokenizer is convoluted and has two paths for merging operators.
+`desc:(x)` — value is a bare word that can't include `(`, so tokenizes as `desc:` then group; that's arguably malformed. My expectation was wrong; `desc:` with empty value should error. Fine.
+Now add tests to the repo.
+Right—Coffee shop matches desc, OR has lower precedence than AND, so implicit AND applies only to `(…) amount<-5`. Fix expectation.
+Done. Added `Ledger.search` backed by a new `ledger/search.py` implementing the query language (terms, quoted values with escapes, `AND`/`OR`/`NOT` with implicit `AND`, parentheses, precedence) and raising `ValueError` on malformed input. Existing tests still pass (26 total).

@@ -1,0 +1,1 @@
+Added `tag` filter to `query()` and a `tags()` method in `ledger/ledger.py`. All 4 tests pass.

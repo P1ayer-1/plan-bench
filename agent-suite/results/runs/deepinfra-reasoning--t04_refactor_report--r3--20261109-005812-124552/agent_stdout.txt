@@ -1,0 +1,8 @@
+I'll start by exploring the repository structure and the target file.
+Refactored `ledger/report.py`:
+
+- Added `group_by_month`, `totals_by_category`, and `category_share`.
+- `monthly_summary` now delegates to the first two, preserving output.
+- Added no new dependencies or behavior changes.
+
+`python -m pytest -q`: 4 passed.

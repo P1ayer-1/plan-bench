@@ -1,0 +1,60 @@
+diff --git a/ledger/report.py b/ledger/report.py
+index 0f3c778..e942013 100644
+--- a/ledger/report.py
++++ b/ledger/report.py
+@@ -1,19 +1,47 @@
+ from .money import Money
+ 
+ 
+-def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++def group_by_month(transactions):
++    """Return {"YYYY-MM": [transactions]} with keys sorted."""
+     result = {}
+-    for tx in ledger.transactions:
++    for tx in transactions:
+         m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++        result.setdefault(m, []).append(tx)
+     return dict(sorted(result.items()))
+ 
+ 
++def totals_by_category(transactions):
++    """Return {category: Money} with amounts summed per category."""
++    result = {}
++    for tx in transactions:
++        if tx.category not in result:
++            result[tx.category] = Money.zero(tx.amount.currency)
++        result[tx.category] = result[tx.category] + tx.amount
++    return result
++
++
++def monthly_summary(ledger):
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++    return {
++        month: totals_by_category(txs)
++        for month, txs in group_by_month(ledger.transactions).items()
++    }
++
++
++def category_share(ledger, month):
++    """Return {category: fraction of that month's spending} for negative amounts."""
++    spending = {}
++    total = 0
++    for tx in group_by_month(ledger.transactions).get(month, []):
++        if tx.amount.amount < 0:
++            abs_amount = -tx.amount.amount
++            spending[tx.category] = spending.get(tx.category, 0) + abs_amount
++            total += abs_amount
++    if total == 0:
++        return {}
++    return {cat: float(amount / total) for cat, amount in spending.items()}
++
++
+ def largest_expenses(ledger, n=3):
+     """Return the n most negative transactions, most negative first."""
+     expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]

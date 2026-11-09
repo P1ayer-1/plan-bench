@@ -1,0 +1,7 @@
+All 8 tests pass.
+
+Changes:
+- `ledger/money.py`: added `CurrencyMismatch`, enforced in `__add__`, `__sub__`, `__lt__`.
+- `ledger/ledger.py:balance`: returns `dict[currency -> Money]`.
+- `ledger/report.py`: mixed-currency months use `(category, currency)` keys; single-currency months keep plain keys.
+- `ledger/__init__.py`: exports `CurrencyMismatch`; CLI output works unchanged via `Money.__str__`.

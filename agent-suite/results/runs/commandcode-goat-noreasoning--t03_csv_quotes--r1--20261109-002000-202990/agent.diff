@@ -1,0 +1,39 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..fe35696 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -1,3 +1,6 @@
++import csv
++import io
++
+ from datetime import date
+ from .money import Money
+ from .ledger import Transaction
+@@ -8,15 +11,22 @@ HEADER = ["date", "description", "amount", "category", "tags"]
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+     tags are separated by ';'. Returns a list of Transaction."""
+-    lines = [l for l in text.strip().splitlines() if l.strip()]
+-    if not lines:
++    reader = csv.reader(io.StringIO(text, newline=""))
++    rows = [row for row in reader if any(field.strip() for field in row)]
++    if not rows:
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
++    header = [h.strip() for h in rows[0]]
+     if header != HEADER:
+         raise ValueError(f"bad header: {header}")
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    for index, row in enumerate(rows[1:], start=2):
++        if len(row) == 4:
++            row = row + [""]
++        if len(row) != len(HEADER):
++            raise ValueError(
++                f"line {index}: expected {len(HEADER)} fields, got {len(row)}"
++            )
++        d, desc, amt, cat, tags = row
+         out.append(Transaction(
+             date=date.fromisoformat(d.strip()),
+             description=desc.strip(),

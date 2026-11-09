@@ -1,0 +1,479 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | head -100 && echo '---' && git status
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+---
+On branch master
+nothing to commit, working tree clean
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 7.14s
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead README.md
+[0m
+[0m$ [0mcat opencode.json; python -c 'import decimal; print(decimal.getcontext())'
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/deepinfra-reasoning/run/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+          "name": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "small_model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+}Context(prec=28, rounding=ROUND_HALF_EVEN, Emin=-999999, Emax=999999, capitals=1, clamp=0, flags=[], traps=[InvalidOperation, DivisionByZero, Overflow])
+[0m
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/parser.py
+[0m
+[0m← [0mWrite ledger/fx.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+@@ -37,8 +37,18 @@
+     for tx in self.transactions:
+         total = total + tx.amount
+     return total
+ 
++def balance_in(self, currency, table, on=None):
++    """Return the ledger total in ``currency``, converting each transaction
++    at its own date (or at ``on`` when given) and rounding once at the end."""
++    total = Decimal(0)
++    for tx in self.transactions:
++        rate_date = on if on is not None else tx.date
++        rate = table.rate(tx.amount.currency, currency, rate_date)
++        total += tx.amount.amount * rate
++    return Money(total, currency)
++
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
+     result = []
+
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal
+ from .money import Money
+ 
+ 
+ @dataclass(frozen=True)
+
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/__init__.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from decimal import Decimal
+from ledger import Money, Ledger, Transaction
+from ledger.fx import RateTable, convert
+
+t=RateTable()
+t.add(date(2026,1,1),'EUR','USD','1.10')
+t.add(date(2026,2,1),'EUR','USD',Decimal('1.20'))
+t.add(date(2026,1,1),'USD','JPY',150)
+print(t.rate('EUR','USD',date(2026,1,15)) == Decimal('1.10'))
+print(t.rate('EUR','USD',date(2026,2,2)) == Decimal('1.20'))
+print(t.rate('USD','EUR',date(2026,1,15)) == Decimal(1)/Decimal('1.10'))
+print(t.rate('EUR','JPY',date(2026,1,15)))
+print(t.rate('USD','USD',date(2020,1,1)))
+t.add(date(2026,1,1),'EUR','USD','1.11')
+print(t.rate('EUR','USD',date(2026,1,15)))
+try:
+    t.rate('GBP','JPY',date(2026,1,15))
+except KeyError as e:
+    print('keyerror', e)
+print(convert(Money('10.00','EUR'),'USD',t,date(2026,1,15)))
+l=Ledger([Transaction(date(2026,1,15),'a',Money('10.00','EUR'),'x'),Transaction(date(2026,2,15),'b',Money('10.00','EUR'),'x')])
+print(l.balance_in('USD',t))
+print(l.balance_in('USD',t,date(2026,1,15)))
+print(Ledger().balance_in('USD',t))
+PY
+python -m pytest -q
+True
+True
+True
+165.00
+1
+1.11
+keyerror ('GBP', 'JPY', datetime.date(2026, 1, 15))
+11.10 USD
+23.10 USD
+22.20 USD
+0.00 USD
+....                                                                     [100%]
+4 passed in 0.23s
+[0m
+[0m← [0mEdit ledger/fx.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
+@@ -61,8 +61,17 @@
+                 return base_usd * usd_quote
+         raise KeyError((base, quote, on))
+ 
+ 
++def _exact_product(left, right):
++    with localcontext() as context:
++        context.prec = max(
++            context.prec,
++            len(left.as_tuple().digits) + len(right.as_tuple().digits),
++        )
++        return left * right
++
++
+ def convert(money, to, table, on):
+     """Convert ``money`` to currency ``to`` at the rate on date ``on``."""
+     rate = table.rate(money.currency, to, on)
+-    return Money(money.amount * rate, to)
++    return Money(_exact_product(money.amount, rate), to)
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+@@ -1,8 +1,9 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+-from decimal import Decimal
++from decimal import Decimal, localcontext
+ from .money import Money
++from .fx import _exact_product
+ 
+ 
+ @dataclass(frozen=True)
+ class Transaction:
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/ledger.py
+@@ -42,13 +42,20 @@
+ 
+ def balance_in(self, currency, table, on=None):
+     """Return the ledger total in ``currency``, converting each transaction
+     at its own date (or at ``on`` when given) and rounding once at the end."""
+-    total = Decimal(0)
++    if not self.transactions:
++        return Money.zero(currency)
++    terms = []
+     for tx in self.transactions:
+         rate_date = on if on is not None else tx.date
+         rate = table.rate(tx.amount.currency, currency, rate_date)
+-        total += tx.amount.amount * rate
++        terms.append(_exact_product(tx.amount.amount, rate))
++    with localcontext() as context:
++        max_adjusted = max(term.adjusted() for term in terms)
++        min_exponent = min(term.as_tuple().exponent for term in terms)
++        context.prec = max(context.prec, max_adjusted - min_exponent + 1)
++        total = sum(terms, Decimal(0))
+     return Money(total, currency)
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+from datetime import date
+from decimal import Decimal, getcontext
+from ledger import Money, Ledger, Transaction
+from ledger.fx import RateTable, convert
+
+t=RateTable()
+t.add(date(2026,1,1),'EUR','USD','1.10')
+t.add(date(2026,2,1),'EUR','USD',Decimal('1.20'))
+t.add(date(2026,1,1),'USD','JPY',150)
+assert t.rate('EUR','USD',date(2026,1,15)) == Decimal('1.10')
+assert t.rate('EUR','USD',date(2026,2,2)) == Decimal('1.20')
+assert t.rate('USD','EUR',date(2026,1,15)) == Decimal(1)/Decimal('1.10')
+assert t.rate('EUR','JPY',date(2026,1,15)) == Decimal('165.00')
+assert t.rate('USD','USD',date(2020,1,1)) == Decimal(1)
+assert convert(Money('10.00','EUR'),'USD',t,date(2026,1,15)) == Money('11.10','USD')
+l=Ledger([Transaction(date(2026,1,15),'a',Money('10.00','EUR'),'x'),Transaction(date(2026,2,15),'b',Money('10.00','EUR'),'x')])
+assert l.balance_in('USD',t) == Money('23.10','USD')
+assert l.balance_in('USD',t,date(2026,1,15)) == Money('22.20','USD')
+assert Ledger().balance_in('USD',t) == Money.zero('USD')
+# unrounded accumulation: 1 cent each at 1.005 should accumulate to 2.01, not 1.00+1.00
+t2=RateTable(); t2.add(date(2026,1,1),'EUR','USD','1.005')
+l2=Ledger([Transaction(date(2026,1,1),'a',Money('0.01','EUR'),'x'),Transaction(date(2026,1,1),'b',Money('0.01','EUR'),'x')])
+assert l2.balance_in('USD',t2) == Money('0.02','USD')  # 0.0201 -> 0.02
+# direct forward stale vs inverse newer: forward always preferred
+t3=RateTable(); t3.add(date(2026,1,1),'A','B','2'); t3.add(date(2026,2,1),'B','A','0.4')
+assert t3.rate('A','B',date(2026,3,1)) == Decimal(2)
+# same date replace
+t3.add(date(2026,1,1),'A','B','3')
+assert t3.rate('A','B',date(2026,1,1)) == Decimal(3)
+print('ok')
+PY
+....                                                                     [100%]
+4 passed in 0.15s
+Traceback (most recent call last):
+  File "<stdin>", line 15, in <module>
+AssertionError
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from decimal import Decimal
+from ledger import Money, Ledger, Transaction
+from ledger.fx import RateTable, convert
+t=RateTable(); t.add(date(2026,1,1),'EUR','USD','1.10'); t.add(date(2026,2,1),'EUR','USD',Decimal('1.20')); t.add(date(2026,1,1),'USD','JPY',150)
+assert t.rate('EUR','USD',date(2026,1,15)) == Decimal('1.10')
+assert t.rate('EUR','USD',date(2026,2,2)) == Decimal('1.20')
+assert t.rate('USD','EUR',date(2026,1,15)) == Decimal(1)/Decimal('1.10')
+assert t.rate('EUR','JPY',date(2026,1,15)) == Decimal('165.00')
+assert t.rate('USD','USD',date(2020,1,1)) == Decimal(1)
+assert convert(Money('10.00','EUR'),'USD',t,date(2026,1,15)) == Money('11.00','USD')
+l=Ledger([Transaction(date(2026,1,15),'a',Money('10.00','EUR'),'x'),Transaction(date(2026,2,15),'b',Money('10.00','EUR'),'x')])
+assert l.balance_in('USD',t) == Money('23.00','USD')
+assert l.balance_in('USD',t,date(2026,1,15)) == Money('22.00','USD')
+assert Ledger().balance_in('USD',t) == Money.zero('USD')
+t2=RateTable(); t2.add(date(2026,1,1),'EUR','USD','1.005')
+l2=Ledger([Transaction(date(2026,1,1),'a',Money('0.01','EUR'),'x'),Transaction(date(2026,1,1),'b',Money('0.01','EUR'),'x')])
+assert l2.balance_in('USD',t2) == Money('0.02','USD')
+t3=RateTable(); t3.add(date(2026,1,1),'A','B','2'); t3.add(date(2026,2,1),'B','A','0.4')
+assert t3.rate('A','B',date(2026,3,1)) == Decimal(2)
+t3.add(date(2026,1,1),'A','B','3')
+assert t3.rate('A','B',date(2026,1,1)) == Decimal(3)
+print('ok')
+PY
+ok
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.fx import RateTable
+t=RateTable(); t.add(date(2026,1,1),'EUR','USD','1.5')
+l=Ledger([Transaction(date(2026,1,1),'a',Money('0.01','EUR'),'x'),Transaction(date(2026,1,1),'b',Money('0.01','EUR'),'x')])
+print(l.balance_in('USD',t))
+assert l.balance_in('USD',t)==Money('0.03','USD')
+print('ok')
+PY
+0.03 USD
+ok
+[0m
+[0m$ [0msed -n '1,200p' ledger/fx.py && echo '---' && sed -n '1,70p' ledger/ledger.py && echo '---' && cat ledger/__init__.py && git diff --stat
+from datetime import date
+from decimal import Decimal, localcontext
+
+from .money import Money
+
+
+def _as_decimal(rate):
+    if isinstance(rate, Decimal):
+        return rate
+    if isinstance(rate, int):
+        return Decimal(rate)
+    return Decimal(str(rate))
+
+
+class RateTable:
+    """Historical exchange rates, stored as exact Decimals."""
+
+    def __init__(self):
+        self._rates = {}
+
+    def add(self, on, base, quote, rate):
+        """From date ``on`` onward, 1 unit of ``base`` equals ``rate`` of ``quote``."""
+        value = _as_decimal(rate)
+        self._rates.setdefault((base, quote), {})[on] = value
+
+    def _latest(self, base, quote, on):
+        rates = self._rates.get((base, quote))
+        if not rates:
+            return None
+        best_date = None
+        best_rate = None
+        for rate_date, rate in rates.items():
+            if rate_date <= on and (best_date is None or rate_date >= best_date):
+                best_date = rate_date
+                best_rate = rate
+        return best_rate
+
+    def _direct(self, base, quote, on):
+        if base == quote:
+            return Decimal(1)
+        rate = self._latest(base, quote, on)
+        if rate is not None:
+            return rate
+        inverse = self._latest(quote, base, on)
+        if inverse is not None:
+            with localcontext() as context:
+                context.prec = max(context.prec, 28)
+                return Decimal(1) / inverse
+        return None
+
+    def rate(self, base, quote, on):
+        """Return the exchange rate from ``base`` to ``quote`` in effect on ``on``."""
+        with localcontext() as context:
+            context.prec = max(context.prec, 28)
+            rate = self._direct(base, quote, on)
+            if rate is not None:
+                return rate
+            base_usd = self._direct(base, "USD", on)
+            usd_quote = self._direct("USD", quote, on)
+            if base_usd is not None and usd_quote is not None:
+                return base_usd * usd_quote
+        raise KeyError((base, quote, on))
+
+
+def _exact_product(left, right):
+    with localcontext() as context:
+        context.prec = max(
+            context.prec,
+            len(left.as_tuple().digits) + len(right.as_tuple().digits),
+        )
+        return left * right
+
+
+def convert(money, to, table, on):
+    """Convert ``money`` to currency ``to`` at the rate on date ``on``."""
+    rate = table.rate(money.currency, to, on)
+    return Money(_exact_product(money.amount, rate), to)
+---
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal, localcontext
+from .money import Money
+from .fx import _exact_product
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def balance_in(self, currency, table, on=None):
+        """Return the ledger total in ``currency``, converting each transaction
+        at its own date (or at ``on`` when given) and rounding once at the end."""
+        if not self.transactions:
+            return Money.zero(currency)
+        terms = []
+        for tx in self.transactions:
+            rate_date = on if on is not None else tx.date
+            rate = table.rate(tx.amount.currency, currency, rate_date)
+            terms.append(_exact_product(tx.amount.amount, rate))
+        with localcontext() as context:
+            max_adjusted = max(term.adjusted() for term in terms)
+            min_exponent = min(term.as_tuple().exponent for term in terms)
+            context.prec = max(context.prec, max_adjusted - min_exponent + 1)
+            total = sum(terms, Decimal(0))
+        return Money(total, currency)
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+---
+from .money import Money
+from .ledger import Ledger, Transaction
+from .fx import RateTable, convert
+ ledger/__init__.py |  1 +
+ ledger/ledger.py   | 19 +++++++++++++++++++
+ 2 files changed, 20 insertions(+)
+[0m
+[0m← [0mEdit ledger/fx.py
+Index: /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
++++ /suite/results/runs/deepinfra-reasoning--t12_fx_rates--r4--20261109-013053-451140/ws/ledger/fx.py
+@@ -1,5 +1,4 @@
+-from datetime import date
+ from decimal import Decimal, localcontext
+ 
+ from .money import Money
+ 
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 1.27s
+[0m

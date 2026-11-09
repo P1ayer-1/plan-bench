@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 40 tests covering month grouping, key formatting/sorting, category aggregation, sign handling, cent accuracy, empty ledgers, expense filtering/ordering, `n` edge cases, and non-mutation. All pass.

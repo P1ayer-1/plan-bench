@@ -1,0 +1,3 @@
+Implemented `ledger/fx.py` with `RateTable`, `convert`, and added `Ledger.balance_in` with single-rounding behavior. Exported `RateTable` and `convert` from `ledger`.
+
+`python -m pytest -q`: 4 passed.

@@ -1,0 +1,212 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..dc81a0e 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .reconcile import Reconciliation, reconcile
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..344363e
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,124 @@
++"""Bank-statement reconciliation.
++
++Pairs ledger transactions with bank transactions that share the same amount
++(and currency) and whose dates are within ``max_days`` of each other.  The
++pairing maximises the number of matches and, among such pairings, minimises
++the total date distance.
++"""
++
++from collections import defaultdict
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _better(a, b):
++    """Return the better (count, cost) pair: more matches first, then less cost."""
++    if a[0] != b[0]:
++        return a if a[0] > b[0] else b
++    return a if a[1] <= b[1] else b
++
++
++def _match_group(ledger_items, bank_items, max_days):
++    """Return optimal (ledger_index, bank_index) pairs for one amount group.
++
++    ``ledger_items`` and ``bank_items`` contain ``(original_index, tx)`` pairs.
++    Since the date-distance cost is Monge, an optimal matching never crosses:
++    whenever two pairs can be uncrossed, doing so keeps both pairs feasible and
++    does not increase the total distance.  A sequence-alignment DP over the two
++    date-sorted lists therefore finds a maximum-cardinality, minimum-cost
++    matching.
++    """
++    nl = len(ledger_items)
++    nb = len(bank_items)
++    if not nl or not nb:
++        return []
++
++    ledger_sorted = sorted(ledger_items, key=lambda item: (item[1].date, item[0]))
++    bank_sorted = sorted(bank_items, key=lambda item: (item[1].date, item[0]))
++    ledger_dates = [tx.date for _, tx in ledger_sorted]
++    bank_dates = [tx.date for _, tx in bank_sorted]
++
++    # dp[i][j] = (number of pairs, total distance) for the first i ledger
++    # transactions and first j bank transactions.
++    dp = [[(0, 0)] * (nb + 1) for _ in range(nl + 1)]
++
++    for i in range(1, nl + 1):
++        ledger_date = ledger_dates[i - 1]
++        row = dp[i]
++        prev_row = dp[i - 1]
++        for j in range(1, nb + 1):
++            best = _better(prev_row[j], row[j - 1])
++            distance = abs((ledger_date - bank_dates[j - 1]).days)
++            if distance <= max_days:
++                count, cost = prev_row[j - 1]
++                best = _better(best, (count + 1, cost + distance))
++            row[j] = best
++
++    pairs = []
++    i, j = nl, nb
++    while i > 0 and j > 0:
++        distance = abs((ledger_dates[i - 1] - bank_dates[j - 1]).days)
++        if distance <= max_days:
++            count, cost = dp[i - 1][j - 1]
++            if dp[i][j] == (count + 1, cost + distance):
++                pairs.append(
++                    (ledger_sorted[i - 1][0], bank_sorted[j - 1][0])
++                )
++                i -= 1
++                j -= 1
++                continue
++        if dp[i][j] == dp[i - 1][j]:
++            i -= 1
++        else:
++            j -= 1
++
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ``ledger_txs`` against ``bank_txs``.
++
++    Returns a :class:`Reconciliation` whose ``matched`` list contains
++    ``(ledger_tx, bank_tx)`` tuples ordered by the ledger transaction's
++    position in ``ledger_txs``.  Unmatched lists preserve input order.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_groups = defaultdict(list)
++    for index, tx in enumerate(ledger_txs):
++        ledger_groups[tx.amount].append((index, tx))
++
++    bank_groups = defaultdict(list)
++    for index, tx in enumerate(bank_txs):
++        bank_groups[tx.amount].append((index, tx))
++
++    matched_indices = []
++    for amount, ledger_group in ledger_groups.items():
++        bank_group = bank_groups.get(amount)
++        if not bank_group:
++            continue
++        matched_indices.extend(
++            _match_group(ledger_group, bank_group, max_days)
++        )
++
++    matched_indices.sort(key=lambda pair: pair[0])
++
++    used_ledger = {i for i, _ in matched_indices}
++    used_bank = {j for _, j in matched_indices}
++
++    return Reconciliation(
++        matched=[(ledger_txs[i], bank_txs[j]) for i, j in matched_indices],
++        unmatched_ledger=[
++            tx for i, tx in enumerate(ledger_txs) if i not in used_ledger
++        ],
++        unmatched_bank=[
++            tx for j, tx in enumerate(bank_txs) if j not in used_bank
++        ],
++    )
+diff --git a/tests/test_reconcile.py b/tests/test_reconcile.py
+new file mode 100644
+index 0000000..ca25d1d
+--- /dev/null
++++ b/tests/test_reconcile.py
+@@ -0,0 +1,68 @@
++from datetime import date, timedelta
++
++from ledger import Money, Transaction, reconcile
++from ledger.reconcile import Reconciliation
++
++
++BASE = date(2026, 1, 1)
++
++
++def tx(day, amount="10.00", description="x", currency="USD"):
++    return Transaction(
++        date=BASE + timedelta(days=day),
++        description=description,
++        amount=Money(amount, currency),
++        category="test",
++    )
++
++
++def test_basic_match_and_unmatched_order():
++    ledger = [tx(0, "5.00"), tx(10, "7.00")]
++    bank = [tx(1, "5.00"), tx(20, "7.00")]
++    result = reconcile(ledger, bank, max_days=3)
++
++    assert isinstance(result, Reconciliation)
++    assert result.matched == [(ledger[0], bank[0])]
++    assert result.unmatched_ledger == [ledger[1]]
++    assert result.unmatched_bank == [bank[1]]
++
++
++def test_maximises_pairs_not_greedy_nearest():
++    ledger = [tx(0), tx(1)]
++    bank = [tx(1), tx(2)]
++
++    result = reconcile(ledger, bank, max_days=1)
++
++    assert len(result.matched) == 2
++
++
++def test_minimises_total_distance_among_maximum_pairings():
++    ledger = [tx(0), tx(3)]
++    bank = [tx(1), tx(2)]
++
++    result = reconcile(ledger, bank, max_days=3)
++
++    assert len(result.matched) == 2
++    total = sum(abs((l.date - b.date).days) for l, b in result.matched)
++    assert total == 2
++
++
++def test_currency_must_match():
++    ledger = [tx(0, "5.00", currency="USD")]
++    bank = [tx(0, "5.00", currency="EUR")]
++
++    result = reconcile(ledger, bank)
++
++    assert result.matched == []
++    assert result.unmatched_ledger == ledger
++    assert result.unmatched_bank == bank
++
++
++def test_duplicate_transactions_are_distinct():
++    ledger = [tx(0, "5.00"), tx(0, "5.00")]
++    bank = [tx(0, "5.00")]
++
++    result = reconcile(ledger, bank)
++
++    assert result.matched == [(ledger[0], bank[0])]
++    assert result.unmatched_ledger == [ledger[1]]

@@ -1,0 +1,6 @@
+Implemented:
+
+- `Ledger.query(..., tag=None)` filters transactions whose `tags` contain the given tag, combined with existing filters (`ledger/ledger.py:15`).
+- `Ledger.tags()` returns sorted distinct tags (`ledger/ledger.py:30`).
+
+`python -m pytest -q`: 4 passed.

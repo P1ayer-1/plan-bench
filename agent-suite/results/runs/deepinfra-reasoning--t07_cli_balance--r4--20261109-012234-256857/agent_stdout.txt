@@ -1,0 +1,1 @@
+Added the `balance` command in `ledger/cli.py` with inclusive `--since`/`--until`, `--category` filtering, zero fallback, and argparse-based invalid-date errors (stderr, exit 2). All 4 existing tests pass.

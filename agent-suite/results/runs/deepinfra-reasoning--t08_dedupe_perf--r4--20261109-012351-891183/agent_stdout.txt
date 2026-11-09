@@ -1,0 +1,3 @@
+Done. Replaced the O(n²) membership scan with a `set` of seen keys, preserving first-occurrence order and behaviour.
+
+Tests pass (`4 passed`); 200k transactions dedupe in ~0.8s.

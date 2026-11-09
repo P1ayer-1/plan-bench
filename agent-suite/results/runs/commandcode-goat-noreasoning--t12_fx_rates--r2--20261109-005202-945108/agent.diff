@@ -1,0 +1,186 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..d7a5e55
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,64 @@
++from decimal import Decimal, ROUND_HALF_UP
++
++from .money import CENT, Money
++
++USD = "USD"
++
++_PRECISION = 28
++
++
++def _to_decimal(value):
++    if isinstance(value, Decimal):
++        return value
++    return Decimal(str(value))
++
++
++class RateTable:
++    """Historical exact exchange rates keyed by (base, quote)."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        series = self._rates.setdefault((base, quote), {})
++        series[on] = _to_decimal(rate)
++
++    def _latest(self, base, quote, on):
++        series = self._rates.get((base, quote))
++        if not series:
++            return None
++        best_date = None
++        for d in series:
++            if d <= on and (best_date is None or d > best_date):
++                best_date = d
++        if best_date is None:
++            return None
++        return series[best_date]
++
++    def rate(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++
++        direct = self._latest(base, quote, on)
++        if direct is not None:
++            return direct
++
++        inverse = self._latest(quote, base, on)
++        if inverse is not None:
++            return Decimal(1) / inverse
++
++        if base != USD and quote != USD:
++            try:
++                return self.rate(base, USD, on) * self.rate(USD, quote, on)
++            except KeyError:
++                pass
++
++        raise KeyError(f"no rate for {base}->{quote} on {on}")
++
++
++def convert(money, to, table, on):
++    """Convert money to `to` at the rate in effect on `on`, rounding once."""
++    if money.currency == to:
++        return Money(money.amount, to)
++    rate = table.rate(money.currency, to, on)
++    return Money(money.amount * rate, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..79c6031 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+-from .money import Money
++from decimal import Decimal
++from .money import CENT, Money
+ 
+ 
+ @dataclass(frozen=True)
+@@ -38,6 +39,16 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        """Total of all transactions in `currency`, rounding only at the end."""
++        from .money import ROUND_HALF_UP
++        total = Decimal(0)
++        for tx in self.transactions:
++            when = on if on is not None else tx.date
++            rate = table.rate(tx.amount.currency, currency, when)
++            total += tx.amount.amount * rate
++        return Money(total.quantize(CENT, rounding=ROUND_HALF_UP), currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""
+diff --git a/tests/test_fx.py b/tests/test_fx.py
+new file mode 100644
+index 0000000..b3e627d
+--- /dev/null
++++ b/tests/test_fx.py
+@@ -0,0 +1,80 @@
++from datetime import date
++from decimal import Decimal
++
++import pytest
++
++from ledger import Money, Ledger, Transaction
++from ledger.fx import RateTable, convert
++
++
++def test_rate_same_currency():
++    assert RateTable().rate("USD", "USD", date(2026, 1, 1)) == Decimal(1)
++
++
++def test_rate_forward_and_asof():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.10")
++    t.add(date(2026, 2, 1), "EUR", "USD", "1.20")
++    assert t.rate("EUR", "USD", date(2026, 1, 15)) == Decimal("1.10")
++    assert t.rate("EUR", "USD", date(2026, 2, 1)) == Decimal("1.20")
++    assert t.rate("EUR", "USD", date(2026, 3, 1)) == Decimal("1.20")
++
++
++def test_rate_exact_no_float():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", 0.1)
++    assert t.rate("EUR", "USD", date(2026, 1, 1)) == Decimal("0.1")
++
++
++def test_rate_inverse():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.25")
++    assert t.rate("USD", "EUR", date(2026, 1, 1)) == Decimal(1) / Decimal("1.25")
++
++
++def test_rate_through_usd():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.10")
++    t.add(date(2026, 1, 1), "USD", "GBP", "0.80")
++    assert t.rate("EUR", "GBP", date(2026, 1, 1)) == Decimal("1.10") * Decimal("0.80")
++
++
++def test_rate_missing():
++    with pytest.raises(KeyError):
++        RateTable().rate("EUR", "USD", date(2026, 1, 1))
++
++
++def test_rate_replace_same_date():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.10")
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.50")
++    assert t.rate("EUR", "USD", date(2026, 1, 1)) == Decimal("1.50")
++
++
++def test_convert():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.10")
++    assert convert(Money("10.00", "EUR"), "USD", t, date(2026, 1, 1)) == Money("11.00", "USD")
++
++
++def test_balance_in_per_date():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "1.10")
++    t.add(date(2026, 2, 1), "EUR", "USD", "1.20")
++    l = Ledger([
++        Transaction(date(2026, 1, 10), "a", Money("1.00", "EUR"), "x"),
++        Transaction(date(2026, 2, 10), "b", Money("1.00", "EUR"), "x"),
++    ])
++    assert l.balance_in("USD", t) == Money("2.30")
++    assert l.balance_in("USD", t, date(2026, 1, 20)) == Money("2.20")
++    assert Ledger().balance_in("USD", t) == Money.zero("USD")
++
++
++def test_balance_in_rounds_once():
++    t = RateTable()
++    t.add(date(2026, 1, 1), "EUR", "USD", "0.005")
++    l = Ledger([
++        Transaction(date(2026, 1, 10), "a", Money("1.00", "EUR"), "x"),
++        Transaction(date(2026, 1, 10), "b", Money("1.00", "EUR"), "x"),
++    ])
++    assert l.balance_in("USD", t) == Money("0.01", "USD")

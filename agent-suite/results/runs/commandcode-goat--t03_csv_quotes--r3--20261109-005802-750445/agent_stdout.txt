@@ -1,0 +1,8 @@
+Implemented `ledger/parser.py` to use standard CSV parsing with:
+
+- Quoted fields containing commas and `""` escapes
+- Windows (`\r\n`) line endings
+- Optional trailing `tags` column
+- `ValueError` with 1-based line numbers for wrong field counts
+
+`python -m pytest -q`: 4 passed.

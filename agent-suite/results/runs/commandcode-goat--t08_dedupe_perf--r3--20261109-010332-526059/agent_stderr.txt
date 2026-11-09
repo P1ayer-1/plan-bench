@@ -1,0 +1,213 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && grep -rn "def dedupe" . --include=*.py
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:03 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:03 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  9 01:03 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/ledger.py:41:    def dedupe(self):
+[0m
+[0m$ [0mfind ledger tests -type f -name '*.py' | sort && echo '---' && cat ledger/ledger.py
+ledger/__init__.py
+ledger/cli.py
+ledger/ledger.py
+ledger/money.py
+ledger/parser.py
+ledger/report.py
+tests/test_basic.py
+---
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+[0m
+[0m$ [0mcat ledger/money.py && echo '---TESTS---' && cat tests/test_basic.py && echo '---README---' && cat README.md
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+---TESTS---
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+---README---
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261109-010332-526059/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261109-010332-526059/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261109-010332-526059/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+import time
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+txs = [Transaction(date(2026,1,1)+timedelta(days=i%1000), f"desc {i%5000}", Money((i%10000)/100)) for i in range(200000)]
+import random; random.shuffle(txs)
+l = Ledger(txs)
+t=time.perf_counter(); r=l.dedupe(); dt=time.perf_counter()-t
+print(f"dedupe {len(txs)} -> {len(r.transactions)} in {dt:.3f}s")
+PY
+....                                                                     [100%]
+4 passed in 0.34s
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+  File "<stdin>", line 4, in <listcomp>
+TypeError: Transaction.__init__() missing 1 required positional argument: 'category'
+[0m
+[0m$ [0mpython - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+txs = [Transaction(date(2026,1,1)+timedelta(days=i%1000), f"desc {i%5000}", Money((i%10000)/100), "x") for i in range(200000)]
+random.shuffle(txs)
+l = Ledger(txs)
+t=time.perf_counter(); r=l.dedupe(); dt=time.perf_counter()-t
+print(f"dedupe {len(txs)} -> {len(r.transactions)} in {dt:.3f}s")
+PY
+dedupe 200000 -> 10000 in 0.353s
+[0m

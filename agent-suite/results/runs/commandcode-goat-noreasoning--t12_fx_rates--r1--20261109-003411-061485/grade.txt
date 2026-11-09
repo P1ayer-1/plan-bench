@@ -1,0 +1,37 @@
+self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+ledger/fx.py:46: in rate
+    usd = self.rate(base, "USD", on)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <ledger.fx.RateTable object at 0x72b521594a90>, base = 'EUR'
+quote = 'USD', on = datetime.date(2025, 6, 1)
+
+    def rate(self, base, quote, on: date) -> Decimal:
+>       with localcontext() as ctx:
+E       RecursionError: maximum recursion depth exceeded while calling a Python object
+
+ledger/fx.py:35: RecursionError
+=========================== short test summary info ============================
+FAILED _hidden_test_t12_fx_rates.py::test_before_first_rate_is_keyerror - Rec...
+FAILED _hidden_test_t12_fx_rates.py::test_no_chaining_beyond_usd - RecursionE...
+FAILED _hidden_test_t12_fx_rates.py::test_convert_rounds_once - RecursionErro...
+FAILED _hidden_test_t12_fx_rates.py::test_balance_in_uses_each_date_or_fixed_date
+4 failed, 5 passed in 143.92s (0:02:23)

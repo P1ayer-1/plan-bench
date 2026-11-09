@@ -1,0 +1,1 @@
+Implemented `balance` in `ledger/cli.py:9` with `--since`, `--until`, and `--category`, using inclusive date filtering. Invalid dates report to stderr and exit 2 via argparse. All 4 tests pass.

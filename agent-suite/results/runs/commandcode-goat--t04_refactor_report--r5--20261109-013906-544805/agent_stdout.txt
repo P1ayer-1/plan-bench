@@ -1,0 +1,1 @@
+Done. Refactored `ledger/report.py` with `group_by_month`, `totals_by_category`, and `category_share`; `monthly_summary` now composes the first two with identical output. `python -m pytest -q`: 4 passed.

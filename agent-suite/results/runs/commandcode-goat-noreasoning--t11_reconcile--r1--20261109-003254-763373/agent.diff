@@ -1,0 +1,158 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..44ac295
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,152 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _min_cost_matching(n_left, n_right, edges):
++    """Min-cost bipartite matching (min-cost max-flow on a unit-capacity graph).
++
++    Vertices: source=0, left=1..n_left, right=1+n_left..n_left+n_right, sink=last.
++    Edges allow a left node to pair with a right node at the given cost.
++    Returns list of (left_index, right_index) for a maximum-cardinality,
++    minimum-total-cost matching.
++    """
++    source = 0
++    left_base = 1
++    right_base = 1 + n_left
++    sink = right_base + n_right
++    n_nodes = sink + 1
++
++    graph = [[] for _ in range(n_nodes)]
++
++    def add_edge(u, v, cap, cost):
++        graph[u].append([v, cap, cost, len(graph[v])])
++        graph[v].append([u, 0, -cost, len(graph[u]) - 1])
++
++    for i in range(n_left):
++        add_edge(source, left_base + i, 1, 0)
++    for j in range(n_right):
++        add_edge(right_base + j, sink, 1, 0)
++    for i, j, cost in edges:
++        add_edge(left_base + i, right_base + j, 1, cost)
++
++    INF = float("inf")
++    while True:
++        dist = [INF] * n_nodes
++        dist[source] = 0
++        in_queue = [False] * n_nodes
++        prev_node = [-1] * n_nodes
++        prev_edge = [-1] * n_nodes
++        from collections import deque
++
++        dq = deque([source])
++        in_queue[source] = True
++        while dq:
++            u = dq.popleft()
++            in_queue[u] = False
++            du = dist[u]
++            for idx, e in enumerate(graph[u]):
++                v, cap, cost, _rev = e
++                if cap > 0 and du + cost < dist[v]:
++                    dist[v] = du + cost
++                    prev_node[v] = u
++                    prev_edge[v] = idx
++                    if not in_queue[v]:
++                        in_queue[v] = True
++                        dq.append(v)
++
++        if dist[sink] == INF:
++            break
++
++        v = sink
++        while v != source:
++            u = prev_node[v]
++            idx = prev_edge[v]
++            e = graph[u][idx]
++            e[1] -= 1
++            graph[v][e[3]][1] += 1
++            v = u
++
++    result = []
++    for i in range(n_left):
++        for e in graph[left_base + i]:
++            v, cap, cost, rev = e
++            if right_base <= v < right_base + n_right and cap == 0:
++                if rev < len(graph[v]) and graph[v][rev][1] == 1:
++                    result.append((i, v - right_base))
++    return result
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++    by_amount_bank = {}
++    for j, btx in enumerate(bank_txs):
++        by_amount_bank.setdefault(btx.amount, []).append(j)
++
++    # Build the candidate graph, then split it into connected components so
++    # that the min-cost matching can be solved independently per amount group
++    # (edges only exist between transactions with equal amounts).
++    edges = []
++    parent = {}
++
++    def find(x):
++        while parent[x] != x:
++            parent[x] = parent[parent[x]]
++            x = parent[x]
++        return x
++
++    def union(a, b):
++        ra, rb = find(a), find(b)
++        if ra != rb:
++            parent[rb] = ra
++
++    for i, ltx in enumerate(ledger_txs):
++        parent[("L", i)] = ("L", i)
++    for j in range(len(bank_txs)):
++        parent[("B", j)] = ("B", j)
++
++    for i, ltx in enumerate(ledger_txs):
++        candidates = by_amount_bank.get(ltx.amount)
++        if not candidates:
++            continue
++        for j in candidates:
++            dist = abs((ltx.date - bank_txs[j].date).days)
++            if dist <= max_days:
++                edges.append((i, j, dist))
++                union(("L", i), ("B", j))
++
++    components = {}
++    for i, j, dist in edges:
++        root = find(("L", i))
++        components.setdefault(root, []).append((i, j, dist))
++
++    matched = []
++    matched_ledger = set()
++    matched_bank = set()
++    for comp_edges in components.values():
++        left_idx = sorted({i for i, _, _ in comp_edges})
++        right_idx = sorted({j for _, j, _ in comp_edges})
++        lmap = {v: k for k, v in enumerate(left_idx)}
++        rmap = {v: k for k, v in enumerate(right_idx)}
++        local_edges = [(lmap[i], rmap[j], d) for i, j, d in comp_edges]
++        pairs = _min_cost_matching(len(left_idx), len(right_idx), local_edges)
++        for li, rj in pairs:
++            i = left_idx[li]
++            j = right_idx[rj]
++            matched_ledger.add(i)
++            matched_bank.add(j)
++            matched.append((i, j))
++
++    matched.sort(key=lambda p: p[0])
++
++    return Reconciliation(
++        matched=[(ledger_txs[i], bank_txs[j]) for i, j in matched],
++        unmatched_ledger=[tx for i, tx in enumerate(ledger_txs) if i not in matched_ledger],
++        unmatched_bank=[tx for j, tx in enumerate(bank_txs) if j not in matched_bank],
++    )

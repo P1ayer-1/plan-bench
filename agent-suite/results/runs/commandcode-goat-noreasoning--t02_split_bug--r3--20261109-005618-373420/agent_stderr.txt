@@ -1,0 +1,102 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && grep -rn "def split" . --include=*.py
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:56 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:56 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 657 Nov  9 00:56 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m$ [0mls tests && cat tests/*.py | head -100
+test_basic.py
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r3--20261109-005618-373420/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r3--20261109-005618-373420/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t02_split_bug--r3--20261109-005618-373420/ws/ledger/money.py
+@@ -37,11 +37,19 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts, distributing any remainder to the earliest parts."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    total_cents = int((self.amount / CENT).to_integral_value(rounding=ROUND_HALF_UP))
++    sign = -1 if total_cents < 0 else 1
++    quotient, remainder = divmod(abs(total_cents), n)
++    parts = []
++    for i in range(n):
++        cents = quotient + (1 if i < remainder else 0)
++        parts.append(Money(sign * cents * CENT, self.currency))
++    return parts
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger import Money
+print(Money('10.00').split(3))
+print(Money('-10.00').split(3))
+print(sum(Money('10.00').split(7)))
+"
+....                                                                     [100%]
+4 passed in 0.61s
+[Money('3.34', 'USD'), Money('3.33', 'USD'), Money('3.33', 'USD')]
+[Money('-3.34', 'USD'), Money('-3.33', 'USD'), Money('-3.33', 'USD')]
+Traceback (most recent call last):
+  File "<string>", line 5, in <module>
+TypeError: unsupported operand type(s) for +: 'int' and 'Money'
+[0m
+[0m$ [0mpython -c "
+from ledger import Money
+p=Money('10.00').split(7); s=p[0]
+for x in p[1:]: s=s+x
+print(p,s)
+"
+[Money('1.43', 'USD'), Money('1.43', 'USD'), Money('1.43', 'USD'), Money('1.43', 'USD'), Money('1.43', 'USD'), Money('1.43', 'USD'), Money('1.42', 'USD')] 10.00 USD
+[0m

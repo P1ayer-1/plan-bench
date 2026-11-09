@@ -1,0 +1,2 @@
+I accidentally removed `zero` when replacing. Restoring it.
+Fixed `Money.split` in ledger/money.py:40 to distribute leftover cents to the earliest parts, handle negatives symmetrically, and raise `ValueError` for `n <= 0`. All 4 tests pass.

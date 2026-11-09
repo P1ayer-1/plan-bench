@@ -1,0 +1,67 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:14 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:14 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 652 Nov  9 00:14 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/parser.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t01_tags--r1--20261109-001425-435169/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t01_tags--r1--20261109-001425-435169/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t01_tags--r1--20261109-001425-435169/ws/ledger/ledger.py
+@@ -18,9 +18,9 @@
+ 
+ def add(self, tx):
+     self.transactions.append(tx)
+ 
+-def query(self, category=None, start=None, end=None):
++def query(self, category=None, start=None, end=None, tag=None):
+     """Return transactions matching all given filters (dates inclusive)."""
+     out = []
+     for tx in self.transactions:
+         if category is not None and tx.category != category:
+@@ -28,11 +28,20 @@
+         if start is not None and tx.date < start:
+             continue
+         if end is not None and tx.date > end:
+             continue
++        if tag is not None and tag not in tx.tags:
++            continue
+         out.append(tx)
+     return out
+ 
++def tags(self):
++    """Return a sorted list of every distinct tag used in the ledger."""
++    result = set()
++    for tx in self.transactions:
++        result.update(tx.tags)
++    return sorted(result)
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 1.09s
+[0m

@@ -1,0 +1,1 @@
+Implemented `ledger/fx.py` with `RateTable` and `convert`, and added `Ledger.balance_in`. Existing tests pass (`4 passed`).

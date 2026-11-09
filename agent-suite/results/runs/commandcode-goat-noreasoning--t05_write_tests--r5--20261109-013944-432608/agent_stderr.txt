@@ -1,0 +1,66 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:39 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:39 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 659 Nov  9 01:39 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/parser.py
+[0m
+[0m$ [0mcat ledger/__init__.py && cat opencode.json && cat README.md && python -m pytest -q
+from .money import Money
+from .ledger import Ledger, Transaction
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat-noreasoning/run/commandcode-goat-noreasoning--t05_write_tests--r5--20261109-013944-432608/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+....                                                                     [100%]
+4 passed in 5.06s
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+.................................                                        [100%]
+33 passed in 0.18s
+[0m

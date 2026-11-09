@@ -1,0 +1,39 @@
+I'll explore the codebase first.
+The greedy approach isn't guaranteed to maximize both cardinality and minimize total distance. Let me implement optimal matching per amount group using min-cost max-flow.
+`right.index(j)` is O(n) and wrong for duplicate indices (values are unique so ok, but slow). Let me fix with a map.
+Now optimize: only consider bank candidates within max_days when building edges (bounded by ~100 per amount per side). Let me add date filtering to reduce edges.
+Correctness verified against brute force. Now performance test with a few thousand transactions.
+Second case is too slow (dense graph). Need a faster min-cost max-flow. Since costs are small non-negative integers and graph is bipartite, I can use successive shortest augmenting paths with potentials + Dijkstra. But 10s suggests many augmentations. Better: use Hopcroft-Karp style? Or since the edge sets per amount group are small (~100), use Hungarian-ish. Let me profile the structure: 3000/10 = 300 per amount, exceeds ~100 spec, but still should be fast. The bottleneck is SPFA per augmentation (2893 augmentations). Use Dijkstra with potentials.
+
+Actually a cleaner optimization: sort each group and use the fact that costs are 1D distances. Optimal matching on a line with capacity/window. But simpler: implement Dijkstra-based MCMF.
+Now the main issue: building all edges is O(|left|*|right|) per amount. With ~300 per amount that's 90k edges per group × 10 = 900k, okay. But the bigger cost is running a full MCMF per group. Let me also optimize edge building by sorting on date and only linking within window. First test current speed.
+Still slow — the graph is too large. The `make2` case has ~300 per amount (not within spec's ~100). Let me test with ~100 per amount as specified, and also try to reduce edges by window filtering.
+4000/50 = ~80 per amount, within ~100 spec, and 1.4s. But the ~300/amount case is 11s. The spec says "assuming any single amount appears at most ~100 times per side", so 80 is fine. But let me still improve robustness by exploiting 1D structure to avoid quadratic edges and augmenting-cost. 
+
+A key optimization: since we minimize total distance and dates are 1D, within an amount group the optimal matching can be found more cheaply. But simplest general improvement: prune edges that can never be in an optimal max matching isn't trivial. Given spec, current is acceptable. Let me verify the spec's worst case (~100 each) at a few thousand.
+2.6s for a heavy case with ~100/amount all within a tiny 10-day window. "well under a few seconds" — borderline. Let me optimize the group matching using the 1D sorted structure. 
+
+Better approach per amount group: sort left and right by date. Because cost is |date difference| and we want max cardinality then min cost, I can solve it as min-cost flow but with far fewer edges: only connect each left to a bounded set of nearby rights. Actually with equal amounts and the window, an optimal min-cost max-cardinality matching on the line has a non-crossing structure — can be solved greedily by sorting? Not exactly with max_days window. 
+
+Let me instead reduce edges and use a faster specialized DP. Actually, a simpler large win: cap edges per left node to those rights within window (already done via max_days), but the window catches all. Let me instead limit to the closest `k` rights on each side... not provably optimal.
+
+Let me try a different tactic: improve constant factor by only adding edges between nodes that could matter. Given time, 2.6s for an extreme dense case is acceptable. Let me confirm typical realistic case is fast and finalize.
+Let me add a test file for the new module to verify behaviors, and re-check the min-cost per group with a nested-heap concern. Actually let me reconsider performance: the pathological `make2` (300/amount) took 11s, exceeding "few thousand ... well under a few seconds" only if amounts repeat that much, which spec excludes. Still, let me improve by limiting candidate edges per left node to a maximum and using a smarter approach.
+
+Let me try a key insight: for min-cost max-flow on a line metric, sorting both sides and connecting only to nearest available isn't globally safe, but I can use the fact that cost = distance. Let me just make the flow faster by using a cheaper shortest-path (Dial's / bucket) since costs are small integers bounded by max_days.
+The MCMF is the bottleneck: 40 groups each ~100×100 nodes, dense with ~1.2M heappops. I'll add a per-left candidate cap is risky. Better: exploit the line structure with a DP per amount group.
+
+For a fixed amount, both sides have dates. Minimum total distance perfect-ish matching on a line: sort both. Then optimal matching is order-preserving (non-crossing). With a window constraint, use interval DP? Could be O(n²) per group = 10k per group, 40 groups = 400k — much faster than flow. But cardinality-max first complicates. 
+
+Actually min-cost max-cardinality matching on a line with a window: crossing pairs never help cardinality either, so an order-preserving matching is optimal. DP over sorted left/right: `dp[i][j]` = best (max pairs, min cost) using first i left and first j right. Transitions O(1) per cell. That's O(n_left*n_right) per group, ~10k, way faster. Let me implement this — it's provably correct for 1D distances.
+
+Let me verify the non-crossing property: if left l1≤l2 and right r1≤r2 both matched as (l1,r2),(l2,r1) crossing, swapping to (l1,r1),(l2,r2) doesn't increase cost and keeps cardinality/window valid. Yes, valid.
+Now fast, and correctness verified against brute force. Let me stress the DP correctness with more random trials including wider amounts and max_days, and duplicate dates.
+Correct. Now write tests for the module and export it, then run full suite.
+The `test_max_days_either_direction` has a sloppy `or True`. Let me clean it.
+All 12 tests pass. Done.
+
+Implemented `ledger/reconcile.py`:
+- `Reconciliation` dataclass with `matched`, `unmatched_ledger`, `unmatched_bank`.
+- `reconcile(ledger_txs, bank_txs, max_days=3)` groups by `Money` (amount+currency), then solves each group with an O(n·m) line-metric DP that maximizes pairs first, then minimizes total date distance (non-crossing optimality). Handles duplicates as distinct elements and preserves required ordering.
+- Verified against brute-force on 2000 random cases; ~0.13s for 4000×4000 with ~100/amount. Exported from `ledger/__init__.py`, added `tests/test_reconcile.py`. `python -m pytest -q`: 12 passed.

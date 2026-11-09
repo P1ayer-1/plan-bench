@@ -1,0 +1,1 @@
+35 passed. Added `tests/test_report.py` covering month grouping/boundaries, key ordering, signs, Decimal precision, currency, expense filtering, sorting, limits, and non-mutation.

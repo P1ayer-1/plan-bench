@@ -1,0 +1,211 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..7b165a1 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,4 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++
++from .reconcile import reconcile, Reconciliation  # noqa: E402
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..7270213
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,126 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++class _MinCostMaxFlow:
++    def __init__(self, n):
++        self.n = n
++        self.graph = [[] for _ in range(n)]
++
++    def add_edge(self, u, v, cap, cost):
++        self.graph[u].append([v, cap, cost, len(self.graph[v])])
++        self.graph[v].append([u, 0, -cost, len(self.graph[u]) - 1])
++
++    def flow(self, s, t):
++        n = self.n
++        INF = float("inf")
++        total_flow = 0
++        total_cost = 0
++        while True:
++            dist = [INF] * n
++            in_queue = [False] * n
++            prev_v = [-1] * n
++            prev_e = [-1] * n
++            dist[s] = 0
++            queue = [s]
++            in_queue[s] = True
++            head = 0
++            while head < len(queue):
++                u = queue[head]
++                head += 1
++                in_queue[u] = False
++                du = dist[u]
++                for i, e in enumerate(self.graph[u]):
++                    v, cap, cost, _ = e
++                    if cap > 0 and du + cost < dist[v]:
++                        dist[v] = du + cost
++                        prev_v[v] = u
++                        prev_e[v] = i
++                        if not in_queue[v]:
++                            in_queue[v] = True
++                            queue.append(v)
++            if dist[t] == INF:
++                break
++            push = INF
++            v = t
++            while v != s:
++                u = prev_v[v]
++                e = self.graph[u][prev_e[v]]
++                if e[1] < push:
++                    push = e[1]
++                v = u
++            v = t
++            while v != s:
++                u = prev_v[v]
++                e = self.graph[u][prev_e[v]]
++                e[1] -= push
++                self.graph[v][e[3]][1] += push
++                v = u
++            total_flow += push
++            total_cost += push * dist[t]
++        return total_flow, total_cost
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++    result = Reconciliation()
++
++    groups = {}
++    for i, ltx in enumerate(ledger_txs):
++        groups.setdefault(ltx.amount, ([], []))[0].append(i)
++    for j, btx in enumerate(bank_txs):
++        key = btx.amount
++        if key in groups:
++            groups[key][1].append(j)
++
++    matched_ledger = [False] * len(ledger_txs)
++    matched_bank = [False] * len(bank_txs)
++    pairs_by_ledger = {}
++
++    for amount, (l_idx, b_idx) in groups.items():
++        if not b_idx:
++            continue
++        n_left = len(l_idx)
++        n_right = len(b_idx)
++        s = 0
++        left_base = 1
++        right_base = left_base + n_left
++        t = right_base + n_right
++        mcmf = _MinCostMaxFlow(t + 1)
++        for k in range(n_left):
++            mcmf.add_edge(s, left_base + k, 1, 0)
++        for k in range(n_right):
++            mcmf.add_edge(right_base + k, t, 1, 0)
++        edges = []
++        for a in range(n_left):
++            ld = ledger_txs[l_idx[a]].date
++            for b in range(n_right):
++                bd = bank_txs[b_idx[b]].date
++                diff = (ld - bd).days
++                if abs(diff) <= max_days:
++                    idx = len(mcmf.graph[left_base + a])
++                    mcmf.add_edge(left_base + a, right_base + b, 1, abs(diff))
++                    edges.append((a, b, idx))
++        if not edges:
++            continue
++        mcmf.flow(s, t)
++        for a, b, idx in edges:
++            if mcmf.graph[left_base + a][idx][1] == 0:
++                li = l_idx[a]
++                bj = b_idx[b]
++                matched_ledger[li] = True
++                matched_bank[bj] = True
++                pairs_by_ledger[li] = bj
++
++    for i in sorted(pairs_by_ledger):
++        result.matched.append((ledger_txs[i], bank_txs[pairs_by_ledger[i]]))
++    result.unmatched_ledger = [tx for i, tx in enumerate(ledger_txs) if not matched_ledger[i]]
++    result.unmatched_bank = [tx for j, tx in enumerate(bank_txs) if not matched_bank[j]]
++    return result
+diff --git a/tests/test_reconcile.py b/tests/test_reconcile.py
+new file mode 100644
+index 0000000..96836f7
+--- /dev/null
++++ b/tests/test_reconcile.py
+@@ -0,0 +1,64 @@
++from datetime import date, timedelta
++from ledger import Money, Transaction
++from ledger.reconcile import reconcile, Reconciliation
++
++
++def tx(day_offset, amount, description="x"):
++    return Transaction(
++        date=date(2026, 1, 1) + timedelta(days=day_offset),
++        description=description,
++        amount=Money(amount),
++        category="c",
++    )
++
++
++def test_basic_match_and_unmatched():
++    ledger = [tx(0, "10"), tx(1, "20"), tx(5, "30")]
++    bank = [tx(1, "10"), tx(2, "20")]
++    r = reconcile(ledger, bank)
++    assert isinstance(r, Reconciliation)
++    assert r.matched == [(ledger[0], bank[0]), (ledger[1], bank[1])]
++    assert r.unmatched_ledger == [ledger[2]]
++    assert r.unmatched_bank == []
++
++
++def test_max_days_boundary():
++    ledger = [tx(0, "10")]
++    assert len(reconcile(ledger, [tx(3, "10")], max_days=3).matched) == 1
++    assert len(reconcile(ledger, [tx(4, "10")], max_days=3).matched) == 0
++    assert len(reconcile(ledger, [tx(-3, "10")], max_days=3).matched) == 1
++
++
++def test_currency_must_match():
++    ledger = [tx(0, "10")]
++    bank = [Transaction(date=date(2026, 1, 1), description="", amount=Money(10, "EUR"), category="")]
++    assert reconcile(ledger, bank).matched == []
++
++
++def test_identical_transactions_are_separate():
++    ledger = [tx(0, "10"), tx(0, "10")]
++    bank = [tx(0, "10")]
++    r = reconcile(ledger, bank)
++    assert len(r.matched) == 1
++    assert len(r.unmatched_ledger) == 1
++
++
++def test_maximizes_pairs_then_minimizes_distance():
++    ledger = [tx(0, "100"), tx(3, "100")]
++    bank = [tx(2, "100"), tx(5, "100")]
++    r = reconcile(ledger, bank)
++    assert len(r.matched) == 2
++
++    ledger = [tx(0, "100"), tx(2, "100")]
++    bank = [tx(1, "100"), tx(2, "100")]
++    r = reconcile(ledger, bank)
++    assert len(r.matched) == 2
++    total = sum(abs((l.date - b.date).days) for l, b in r.matched)
++    assert total == 1
++
++
++def test_matched_ordered_by_ledger_position():
++    ledger = [tx(5, "10"), tx(0, "10")]
++    bank = [tx(0, "10")]
++    r = reconcile(ledger, bank)
++    assert r.matched == [(ledger[1], bank[0])]

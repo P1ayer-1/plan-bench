@@ -1,0 +1,10 @@
+Two pairs forced; second date is day 3 → distances 1 and 2, total 3; any matching is 2+1=3. My assertion was wrong.
+Right, it's 2. Fix.
+Now export from package? Not required, but useful.
+Simplify the pair detection for robustness (check forward residual cap instead of reverse == 1):
+Index assumption wrong (forward edges aren't at fixed positions due to the source/sink edges ordering). Store the edge index when adding.
+The replacement of the loop header didn't apply (indentation). Let me view and fix.
+Distances: L0-B1=1, L2-B2=0, total 1. Correct minimum is 1.
+Let me verify optimality against brute force on random small inputs.
+All good. Final check on the module and full test run already passed.
+Added `ledger/reconcile.py` with `reconcile()` and `Reconciliation`, plus tests. Matches are computed per equal-amount group via min-cost max-flow (dates as costs), giving maximum pairs then minimum total date distance; verified against brute force and ~3k×3k runs in ~0.6s. All 10 tests pass.

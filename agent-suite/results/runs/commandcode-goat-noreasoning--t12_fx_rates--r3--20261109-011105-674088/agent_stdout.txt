@@ -1,0 +1,3 @@
+I'll explore the codebase first.
+Now add `balance_in` to Ledger. Let me handle unrounded conversion.
+Done. Added `ledger/fx.py` with `RateTable`/`convert` and `Ledger.balance_in`. All tests pass.

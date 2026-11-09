@@ -1,0 +1,2 @@
+Now the Ledger method.
+Added `ledger/fx.py` with `RateTable` and `convert`, plus `Ledger.balance_in`. Rates use exact `Decimal`s computed at 50-digit precision; conversion rounds once via `Money`. All 4 existing tests pass.

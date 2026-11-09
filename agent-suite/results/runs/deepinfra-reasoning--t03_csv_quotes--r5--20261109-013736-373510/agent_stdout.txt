@@ -1,0 +1,3 @@
+Fixed `ledger/parser.py` to use Python's CSV quoting rules, handle CRLF, allow a missing `tags` column, and raise field-count errors with the 1-based line number.
+
+`python -m pytest -q`: 4 passed.

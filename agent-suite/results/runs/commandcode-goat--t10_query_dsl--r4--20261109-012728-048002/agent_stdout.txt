@@ -1,0 +1,7 @@
+Implemented `Ledger.search()` with a full query parser/evaluator in `ledger/query.py` and wired it into `ledger/ledger.py`.
+
+Supports all specified terms, operators, precedence, implicit `AND`, quoted values with escapes, empty queries, and malformed-query `ValueError`s. Existing tests pass:
+
+```text
+4 passed
+```

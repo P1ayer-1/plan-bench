@@ -1,0 +1,3 @@
+Implemented `Ledger.search(query)` with the full query DSL in `ledger/search.py` and wired it into `ledger/ledger.py:39`.
+
+Supports field terms, quoted values/escapes, comparisons, `AND`/`OR`/`NOT`, parentheses, implicit `AND`, empty queries, and `ValueError` for malformed input. Existing tests pass: `4 passed`.

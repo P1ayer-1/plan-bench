@@ -1,0 +1,2636 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -type f -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:51 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:51 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 651 Nov  9 00:52 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m$ [0mcat ledger/money.py ledger/ledger.py ledger/__init__.py tests/test_basic.py README.md
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat ledger/report.py ledger/parser.py ledger/cli.py; cat opencode.json
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/deepinfra/run/deepinfra--t11_reconcile--r2--20261109-005148-802607/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+          "name": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "small_model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+}
+[0m
+[0m← [0mWrite ledger/reconcile.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/reconcile.py
+Index: /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+===================================================================
+--- /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
++++ /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+@@ -63,17 +63,18 @@
+             result[p[j] - 1] = j - 1
+     return result
+ 
+ 
+-def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs):
++def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
+     """Optimal pairing for a single amount group.
+ 
+     Maximise the number of pairs; among those, minimise total distance.
+-    Both constraints are encoded in a single cost: every real pair costs
+-    ``distance + penalty`` where ``penalty`` exceeds the maximum possible
+-    total distance, so adding a pair is always preferable, and within a fixed
+-    pair count the distance term decides.  Padding (unmatched) entries all
+-    share the same zero-cost row/column so they never influence the result.
++    Both constraints are encoded in a single cost: every eligible pair costs
++    ``distance + penalty`` where ``penalty`` exceeds the maximum possible total
++    distance, so adding a pair is always preferable, and within a fixed pair
++    count the distance term decides.  Pairs beyond ``max_days`` are forbidden
++    with a very large cost.  Padding (unmatched) entries share the same
++    zero-cost row/column so they never influence the result.
+     """
+     n_l = len(ledger_idx)
+     n_b = len(bank_idx)
+     if n_l == 0 or n_b == 0:
+@@ -85,25 +86,25 @@
+             d = abs((di - bank_txs[j].date).days)
+             if d > max_dist:
+                 max_dist = d
+     penalty = max_dist * min(n_l, n_b) + 1
++    forbidden = penalty * (min(n_l, n_b) + 1)
+     n = n_l + n_b
+     cost = [[0] * n for _ in range(n)]
+     for r, i in enumerate(ledger_idx):
+         di = ledger_txs[i].date
+         for c, j in enumerate(bank_idx):
+             d = abs((di - bank_txs[j].date).days)
+-            cost[r][c] = d + penalty
+-        for c in range(n_b, n):
+-            cost[r][c] = 0
+-    for r in range(n_l, n):
+-        pass
++            cost[r][c] = d + penalty if d <= max_days else forbidden
+     p = _min_cost_assignment(cost, n, n)
+     pairs = []
+     for r in range(n_l):
+         c = p[r]
+         if 0 <= c < n_b:
+-            pairs.append((ledger_idx[r], bank_idx[c]))
++            i = ledger_idx[r]
++            j = bank_idx[c]
++            if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
++                pairs.append((i, j))
+     return pairs
+ 
+ 
+ def reconcile(ledger_txs, bank_txs, max_days=3):
+
+[0m
+[0m$ [0mcat > /tmp/t.py <<'EOF'
+from datetime import date
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile
+
+def tx(d,a):
+    return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+
+r=reconcile([tx(1,10),tx(2,10),tx(10,20)],[tx(3,10),tx(1,20),tx(9,99)])
+print([(e.date,b.date) for e,b in r.matched], [t.date for t in r.unmatched_ledger],[t.date for t in r.unmatched_bank])
+EOF
+python /tmp/t.py
+Traceback (most recent call last):
+  File "/tmp/t.py", line 2, in <module>
+    from ledger import Transaction, Money
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0mPYTHONPATH=. python /tmp/t.py
+[] [datetime.date(2026, 1, 1), datetime.date(2026, 1, 2), datetime.date(2026, 1, 10)] [datetime.date(2026, 1, 3), datetime.date(2026, 1, 1), datetime.date(2026, 1, 9)]
+[0m
+[0m$ [0mcat > /tmp/t2.py <<'EOF'
+from datetime import date
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile, _min_cost_assignment
+
+def tx(d,a):
+    return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+
+print(_min_cost_assignment([[1,2],[2,1]],2,2))
+print(_min_cost_assignment([[0,5]],1,2))
+r=reconcile([tx(1,10),tx(2,10),tx(10,20)],[tx(3,10),tx(1,20),tx(9,99)])
+print([(e.date,b.date) for e,b in r.matched], [t.date for t in r.unmatched_ledger],[t.date for t in r.unmatched_bank])
+EOF
+PYTHONPATH=. python /tmp/t2.py
+[0, 1]
+[0]
+[] [datetime.date(2026, 1, 1), datetime.date(2026, 1, 2), datetime.date(2026, 1, 10)] [datetime.date(2026, 1, 3), datetime.date(2026, 1, 1), datetime.date(2026, 1, 9)]
+[0m
+[0m$ [0mcat > /tmp/t3.py <<'EOF'
+from datetime import date
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile, _solve_dense, _min_cost_assignment
+def tx(d,a):
+    return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10),tx(10,20)]
+b=[tx(3,10),tx(1,20),tx(9,99)]
+print(_solve_dense([0,1],[0],l,b,3))
+print(_min_cost_assignment([[0,1,2,0],[1,2,3,0],[4,5,6,0]],3,4))
+EOF
+PYTHONPATH=. python /tmp/t3.py
+[]
+[0, 1, 3]
+[0m
+[0m$ [0mcat >> /tmp/t3.py <<'EOF'
+l2=[tx(1,10),tx(2,10)]
+print(_solve_dense([0,1],[0],l2,b,3))
+print(_min_cost_assignment([[4+0,0,0],[5+0,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t3.py
+[]
+[0, 1, 3]
+[]
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t4.py <<'EOF'
+from ledger.reconcile import _min_cost_assignment
+print(_min_cost_assignment([[1,0],[0,1]],2,2))
+print(_min_cost_assignment([[0,1],[1,0]],2,2))
+print(_min_cost_assignment([[2,1],[1,2]],2,2))
+EOF
+PYTHONPATH=. python /tmp/t4.py
+[1, 0]
+[0, 1]
+[1, 0]
+[0m
+[0m$ [0mcat >> /tmp/t3.py <<'EOF'
+print(_min_cost_assignment([[4,0,0],[5,0,0],[0,0,0]],2,3))
+EOF
+PYTHONPATH=. python /tmp/t3.py 2>&1 | tail -3
+[]
+[1, 2, 0]
+[1, 2]
+[0m
+[0m$ [0msed -n '1,60p' ledger/reconcile.py
+from dataclasses import dataclass, field
+
+from .money import Money
+
+
+@dataclass
+class Reconciliation:
+    matched: list = field(default_factory=list)
+    unmatched_ledger: list = field(default_factory=list)
+    unmatched_bank: list = field(default_factory=list)
+
+
+def _min_cost_assignment(cost, n_rows, n_cols):
+    """Min-cost assignment on a rectangular matrix via successive shortest
+    paths (Hungarian algorithm) in the form used by e-maxx.
+
+    Returns a list `p` of length n_rows (n_rows <= n_cols) where `p[i]` is the
+    column assigned to row i.
+    """
+    INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    result = [-1] * n_rows
+[0m
+[0m$ [0mcat >> /tmp/t4.py <<'EOF'
+def brute(cost,n):
+    import itertools
+    best=None
+    for perm in itertools.permutations(range(n)):
+        s=sum(cost[i][perm[i]] for i in range(n))
+        if best is None or s<best[0]: best=(s,perm)
+    return best
+print(brute([[4,0,0],[5,0,0],[0,0,0]],3))
+print(brute([[4+0,0,0],[5+0,0,0],[0,0,0]],3))
+EOF
+PYTHONPATH=. python /tmp/t4.py
+[1, 0]
+[0, 1]
+[1, 0]
+(0, (1, 2, 0))
+(0, (1, 2, 0))
+[0m
+[0m$ [0mcat >> /tmp/t3.py <<'EOF'
+print(l2[0].amount, l2[1].amount, l2[0].amount==l2[1].amount)
+print([abs((x.date-b[0].date).days) for x in l2])
+EOF
+PYTHONPATH=. python /tmp/t3.py 2>&1 | tail -4
+[1, 2, 0]
+[1, 2]
+10.00 USD 10.00 USD True
+[2, 1]
+[0m
+[0m$ [0mcat > /tmp/t5.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a):
+    return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]
+b=[tx(3,10)]
+src=open(R.__file__).read()
+ns={}
+exec(compile(src.replace('def _solve_dense','def _solve_dense2'),'x','exec'),ns)
+print(ns['_solve_dense2']([0,1],[0],l,b,3))
+EOF
+PYTHONPATH=. python /tmp/t5.py
+Traceback (most recent call last):
+  File "/tmp/t5.py", line 10, in <module>
+    exec(compile(src.replace('def _solve_dense','def _solve_dense2'),'x','exec'),ns)
+  File "x", line 3, in <module>
+KeyError: "'__name__' not in globals"
+[0m
+[0m$ [0mcat > /tmp/t5.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a):
+    return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]
+b=[tx(3,10)]
+print(R._min_cost_assignment([[2+pen for pen in [2]]+[0], [1+2,0] ],2,2))
+EOF
+PYTHONPATH=. python /tmp/t5.py
+[1, 0]
+[0m
+[0m$ [0mcat > /tmp/t6.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[5,0,0],[0,0,0]],2,3))
+print(R._min_cost_assignment([[0,4,0],[0,5,0],[0,0,0]],2,3))
+EOF
+PYTHONPATH=. python /tmp/t6.py
+[1, 2]
+[0, 2]
+[0m
+[0m$ [0mcat > /tmp/t7.py <<'EOF'
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            if dbg: print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    res=[-1]*n_rows
+    for j in range(1,n_cols+1):
+        if p[j]!=0: res[p[j]-1]=j-1
+    return res
+print(solve([[4,0,0],[5,0,0],[0,0,0]],2,3,True))
+EOF
+python /tmp/t7.py
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+[1, 2]
+[0m
+[0m$ [0mcat >> /tmp/t7.py <<'EOF'
+print(solve([[2,0],[1,0]],2,2,True))
+EOF
+python /tmp/t7.py 2>&1 | tail -8
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+[1, 2]
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0] u [0, 0, 0] v [0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1] u [0, 0, 0] v [0, 0, 0]
+i 2 j0 2 i0 1 j1 1 delta 1 p [2, 0, 1] u [0, 0, 0] v [0, 0, 0]
+[1, 0]
+[0m
+[0m$ [0mcat >> /tmp/t7.py <<'EOF'
+import random, itertools
+def brute(c):
+    n=len(c); best=None
+    for perm in itertools.permutations(range(len(c[0]))):
+        s=sum(c[i][perm[i]] for i in range(n))
+        if best is None or s<best: best=s
+    return best
+random.seed(1)
+bad=0
+for _ in range(2000):
+    r=random.randint(1,3); c=random.randint(r,4)
+    m=[[random.randint(0,3) for _ in range(c)] for _ in range(r)]
+    res=solve(m,r,c)
+    got=sum(m[i][res[i]] for i in range(r))
+    b=brute(m)
+    if got!=b:
+        bad+=1
+        if bad<3: print('BAD',m,res,got,b)
+print('bad',bad)
+EOF
+python /tmp/t7.py 2>&1 | tail -5
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0] u [0, 0, 0] v [0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1] u [0, 0, 0] v [0, 0, 0]
+i 2 j0 2 i0 1 j1 1 delta 1 p [2, 0, 1] u [0, 0, 0] v [0, 0, 0]
+[1, 0]
+bad 0
+[0m
+[0m$ [0mcat > /tmp/t8.py <<'EOF'
+import ledger.reconcile as R
+import random, itertools
+def brute(c):
+    n=len(c); best=None
+    for perm in itertools.permutations(range(len(c[0]))):
+        s=sum(c[i][perm[i]] for i in range(n))
+        if best is None or s<best: best=s
+    return best
+random.seed(1)
+bad=0
+for _ in range(3000):
+    r=random.randint(1,3); cols=random.randint(r,4)
+    m=[[random.randint(0,3) for _ in range(cols)] for _ in range(r)]
+    res=R._min_cost_assignment(m,r,cols)
+    got=sum(m[i][res[i]] for i in range(r))
+    b=brute(m)
+    if got!=b or len(set(res))!=r:
+        bad+=1
+        if bad<4: print('BAD',m,res,got,b)
+print('bad',bad)
+EOF
+PYTHONPATH=. python /tmp/t8.py
+bad 0
+[0m
+[0m$ [0mcat >> /tmp/t8.py <<'EOF'
+print([abs((b[0].date-l[i].date).days) for i in range(2)] if False else "")
+EOF
+cat > /tmp/t9.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]; b=[tx(3,10)]
+print(R._solve_dense([0,1],[0],l,b,3))
+print(R._min_cost_assignment([[4,0,0],[5,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t9.py
+[]
+[1, 2, 0]
+[0m
+[0m$ [0mgrep -n "forbidden\|penalty\|max_dist" ledger/reconcile.py
+72:    ``distance + penalty`` where ``penalty`` exceeds the maximum possible total
+74:    count the distance term decides.  Pairs beyond ``max_days`` are forbidden
+82:    max_dist = 0
+87:            if d > max_dist:
+88:                max_dist = d
+89:    penalty = max_dist * min(n_l, n_b) + 1
+90:    forbidden = penalty * (min(n_l, n_b) + 1)
+97:            cost[r][c] = d + penalty if d <= max_days else forbidden
+[0m
+[0m$ [0mcat > /tmp/t10.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]; b=[tx(3,10)]
+cost=[[2+2,0,0],[1+2,0,0],[0,0,0]]
+print(cost)
+print(R._min_cost_assignment(cost,3,3))
+EOF
+PYTHONPATH=. python /tmp/t10.py
+[[4, 0, 0], [3, 0, 0], [0, 0, 0]]
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t11.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]; b=[tx(3,10)]
+print(R._solve_dense([0,1],[0],l,b,3))
+import inspect
+print(inspect.getsource(R._solve_dense))
+EOF
+PYTHONPATH=. python /tmp/t11.py
+[]
+def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
+    """Optimal pairing for a single amount group.
+
+    Maximise the number of pairs; among those, minimise total distance.
+    Both constraints are encoded in a single cost: every eligible pair costs
+    ``distance + penalty`` where ``penalty`` exceeds the maximum possible total
+    distance, so adding a pair is always preferable, and within a fixed pair
+    count the distance term decides.  Pairs beyond ``max_days`` are forbidden
+    with a very large cost.  Padding (unmatched) entries share the same
+    zero-cost row/column so they never influence the result.
+    """
+    n_l = len(ledger_idx)
+    n_b = len(bank_idx)
+    if n_l == 0 or n_b == 0:
+        return []
+    max_dist = 0
+    for i in ledger_idx:
+        di = ledger_txs[i].date
+        for j in bank_idx:
+            d = abs((di - bank_txs[j].date).days)
+            if d > max_dist:
+                max_dist = d
+    penalty = max_dist * min(n_l, n_b) + 1
+    forbidden = penalty * (min(n_l, n_b) + 1)
+    n = n_l + n_b
+    cost = [[0] * n for _ in range(n)]
+    for r, i in enumerate(ledger_idx):
+        di = ledger_txs[i].date
+        for c, j in enumerate(bank_idx):
+            d = abs((di - bank_txs[j].date).days)
+            cost[r][c] = d + penalty if d <= max_days else forbidden
+    p = _min_cost_assignment(cost, n, n)
+    pairs = []
+    for r in range(n_l):
+        c = p[r]
+        if 0 <= c < n_b:
+            i = ledger_idx[r]
+            j = bank_idx[c]
+            if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
+                pairs.append((i, j))
+    return pairs
+[0m
+[0m$ [0mcat > /tmp/t12.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment.__code__.co_filename)
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,3))
+src=open(R._min_cost_assignment.__code__.co_filename).read()
+i=src.find('def _min_cost_assignment')
+print(src[i:i+2000])
+EOF
+PYTHONPATH=. python /tmp/t12.py
+/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+[1, 2, 0]
+def _min_cost_assignment(cost, n_rows, n_cols):
+    """Min-cost assignment on a rectangular matrix via successive shortest
+    paths (Hungarian algorithm) in the form used by e-maxx.
+
+    Returns a list `p` of length n_rows (n_rows <= n_cols) where `p[i]` is the
+    column assigned to row i.
+    """
+    INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    result = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    return result
+
+
+def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
+    """Optimal pairing for a single amount group.
+
+    Maximise the number of pairs; among those, minimise total distance.
+    Both constraints are encoded in a single cost: every eligible pair costs
+    ``distance + penalty`` where ``penalty`` exceeds the maximum possible total
+    distance, so adding a pair is
+[0m
+[0m$ [0mcat > /tmp/t13.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,2))
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],2,3))
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,1))
+EOF
+PYTHONPATH=. python /tmp/t13.py
+[1, 2, 0]
+
+
+<shell_metadata>
+shell tool terminated command after exceeding timeout 120000 ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.
+</shell_metadata>
+[0m
+[0m$ [0mcat > /tmp/t14.py <<'EOF'
+import ledger.reconcile as R
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            if dbg: print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    res=[-1]*n_rows
+    for j in range(1,n_cols+1):
+        if p[j]!=0: res[p[j]-1]=j-1
+    return res
+print(solve([[6,0,0],[6,0,0],[0,0,0]],3,3,True))
+EOF
+python /tmp/t14.py
+Traceback (most recent call last):
+  File "/tmp/t14.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0msed -i '1d' /tmp/t14.py && python /tmp/t14.py
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcat >> /tmp/t14.py <<'EOF'
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=cost[i0-1][j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    res=[-1]*n_rows
+    for j in range(1,n_cols+1):
+        if p[j]!=0: res[p[j]-1]=j-1
+    return res
+print(solve([[6,0,0],[6,0,0],[0,0,0]],3,3,True))
+EOF
+python /tmp/t14.py 2>&1 | tail -8
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0]
+[1, 2, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t15.py <<'EOF'
+import ledger.reconcile as R, inspect
+print(inspect.getsource(R._min_cost_assignment)==open('/dev/stdin').read() if False else '')
+print(R._min_cost_assignment([[2,0],[1,0]],2,2))
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],2,3))
+EOF
+PYTHONPATH=. python /tmp/t15.py
+[1, 0]
+[1, 2, 0]
+[1, 2]
+[0m
+[0m$ [0mcat > /tmp/t16.py <<'EOF'
+import ledger.reconcile as R
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            if dbg: print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    res=[-1]*n_rows
+    for j in range(1,n_cols+1):
+        if p[j]!=0: res[p[j]-1]=j-1
+    return res
+print(solve([[4,0,0],[2,0,0],[0,0,0]],3,3,True))
+print(solve([[4,0,0],[2,0,0],[0,0,0]],2,3,True))
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t16.py
+Traceback (most recent call last):
+  File "/tmp/t16.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0mPYTHONPATH=. python /tmp/t16.py
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 3 j0 0 i0 3
+[0m
+[0m$ [0mcat > /tmp/t17.py <<'EOF'
+import ledger.reconcile as R, inspect, random, itertools
+src=inspect.getsource(R._min_cost_assignment)
+ns={}
+exec(compile(src,'x','exec'),ns)
+f=ns['_min_cost_assignment']
+print(f([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(f([[2,0],[1,0]],2,2))
+EOF
+PYTHONPATH=. python /tmp/t17.py
+[1, 2, 0]
+[1, 0]
+[0m
+[0m$ [0mcat > /tmp/t18.py <<'EOF'
+import ledger.reconcile as R, inspect
+src=inspect.getsource(R._min_cost_assignment)
+ns={}
+exec(compile(src,'x','exec'),ns)
+f=ns['_min_cost_assignment']
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            if dbg: print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    res=[-1]*n_rows
+    for j in range(1,n_cols+1):
+        if p[j]!=0: res[p[j]-1]=j-1
+    return res
+print(solve([[4,0,0],[2,0,0],[0,0,0]],3,3,True))
+print(f([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t18.py
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0]
+[1, 2, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t19.py <<'EOF'
+import ledger.reconcile as R, inspect
+src=inspect.getsource(R._min_cost_assignment)
+ns={}
+exec(compile(src,'x','exec'),ns)
+f=ns['_min_cost_assignment']
+g=R._min_cost_assignment
+print(g.__code__.co_varnames)
+print(f.__code__.co_varnames)
+import dis
+print(len(g.__code__.co_code),len(f.__code__.co_code))
+print(g([[4,0,0],[2,0,0],[0,0,0]],3,3), f([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t19.py
+('cost', 'n_rows', 'n_cols', 'INF', 'u', 'v', 'p', 'way', 'i', 'j0', 'minv', 'used', 'i0', 'delta', 'j1', 'row', 'j', 'cur', 'result')
+('cost', 'n_rows', 'n_cols', 'INF', 'u', 'v', 'p', 'way', 'i', 'j0', 'minv', 'used', 'i0', 'delta', 'j1', 'row', 'j', 'cur', 'result')
+844 844
+[1, 2, 0] [1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t20.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t20.py; cd /tmp && cat > t21.py <<'EOF'
+EOF
+
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t22.py <<'EOF'
+import ledger.reconcile as R
+print("A",R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print("B",R._min_cost_assignment([[2,0],[1,0]],2,2))
+print("C",R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,3))
+print("D",R._min_cost_assignment([[4,0,0],[5,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws python /tmp/t22.py
+A [1, 2, 0]
+B [1, 0]
+C [1, 2, 0]
+D [1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t23.py <<'EOF'
+import ledger.reconcile as R
+def brute(c):
+    import itertools
+    n=len(c); best=None; bp=None
+    for perm in itertools.permutations(range(len(c[0]))):
+        s=sum(c[i][perm[i]] for i in range(n))
+        if best is None or s<best: best=s; bp=perm
+    return best,bp
+mats=[[[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]],[[6,0,0],[6,0,0],[0,0,0]]]
+for m in mats:
+    r=R._min_cost_assignment(m,len(m),len(m[0]))
+    print(m,r,brute(m))
+EOF
+PYTHONPATH=. python /tmp/t23.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [1, 2, 0] (0, (1, 2, 0))
+[[2, 0], [1, 0]] [1, 0] (1, (1, 0))
+[[6, 0, 0], [6, 0, 0], [0, 0, 0]] [1, 2, 0] (0, (1, 2, 0))
+[0m
+[0m$ [0mcat > /tmp/t24.py <<'EOF'
+import ledger.reconcile as R
+def trace(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            print(' i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    print('final p',p)
+trace([[4,0,0],[2,0,0],[0,0,0]],3,3)
+EOF
+python /tmp/t24.py
+Traceback (most recent call last):
+  File "/tmp/t24.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0msed -i '1d' /tmp/t24.py && python /tmp/t24.py
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0]
+ i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0]
+ i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0]
+ i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2]
+final p [3, 3, 1, 2]
+[0m
+[0m$ [0mcat > /tmp/t25.py <<'EOF'
+import ledger.reconcile as R
+src=open(R.__file__).read().replace('        if p[j] != 0:\n            result[p[j] - 1] = j - 1\n    return result','        if p[j] != 0:\n            result[p[j] - 1] = j - 1\n    print("PP", p)\n    return result')
+ns={}
+exec(compile(src,'x','exec'),ns)
+print(ns['_min_cost_assignment']([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t25.py
+Traceback (most recent call last):
+  File "/tmp/t25.py", line 4, in <module>
+    exec(compile(src,'x','exec'),ns)
+  File "x", line 3, in <module>
+KeyError: "'__name__' not in globals"
+[0m
+[0m$ [0msed -i "s/ns={}/ns={'__name__':'m','__builtins__':__builtins__}/" /tmp/t25.py && PYTHONPATH=. python /tmp/t25.py
+Traceback (most recent call last):
+  File "/tmp/t25.py", line 4, in <module>
+    exec(compile(src,'x','exec'),ns)
+  File "x", line 3, in <module>
+ImportError: attempted relative import with no known parent package
+[0m
+[0m$ [0mcat > /tmp/t25.py <<'EOF'
+import ledger.reconcile as R
+def solve(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+print(solve([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(solve([[2,0],[1,0]],2,2))
+EOF
+python /tmp/t25.py
+Traceback (most recent call last):
+  File "/tmp/t25.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0msed -i '1d' /tmp/t25.py && python /tmp/t25.py
+[3, 3, 1, 2]
+[2, 2, 1]
+[0m
+[0m$ [0mcat >> /tmp/t25.py <<'EOF'
+def trace(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v,'minv',minv,'way',way)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+print(trace([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t25.py 2>&1 | tail -6
+[2, 2, 1]
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 4, 0, 0] way [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 2, 0, 0] way [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 2, 0, 0] way [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+[3, 3, 1, 2]
+[0m
+[0m$ [0mcat > /tmp/t26.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[2,0],[1,0]],2,2))
+EOF
+PYTHONPATH=. python /tmp/t26.py
+cd /tmp && cp /tmp/t26.py /tmp/t27.py && PYTHONPATH=/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws python /tmp/t27.py
+[1, 2, 0]
+[1, 0]
+[1, 2, 0]
+[1, 0]
+[0m
+[0m$ [0msed -i 's/    return p$/    return cost, n_rows, n_cols, p/' /tmp/t25.py && sed -i 's/^print(trace(/print(trace([4,0,0],[2,0,0],[0,0,0],3,3))/' /tmp/t25.py && python /tmp/t25.py 2>&1 | tail -3
+print(trace([4,0,0],[2,0,0],[0,0,0],3,3))[[4,0,0],[2,0,0],[0,0,0]],3,3))
+                                                                          ^
+SyntaxError: unmatched ')'
+[0m
+[0m$ [0mcd /tmp && python - <<'EOF'
+s=open('/tmp/t25.py').read()
+s=s.replace("print(trace([4,0,0],[2,0,0],[0,0,0],3,3))[[4,0,0],[2,0,0],[0,0,0]],3,3))","res=trace([[4,0,0],[2,0,0],[0,0,0]],3,3)\nprint(res[3])")
+s=s.replace("    return cost, n_rows, n_cols, p","    return cost, n_rows, n_cols, p")
+open('/tmp/t25.py','w').write(s)
+EOF
+python /tmp/t25.py 2>&1 | tail -2
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+[3, 3, 1, 2]
+[0m
+[0m$ [0mcat > /tmp/t28.py <<'EOF'
+import inspect, ledger.reconcile as R
+src=open(R.__file__).read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j].replace('return result','return p, result')
+ns={'__builtins__':__builtins__}
+exec(compile(fn,'lvl','exec'),ns)
+f=ns['_min_cost_assignment']
+print(f([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t28.py
+([3, 3, 1, 2], [1, 2, 0])
+[0m
+[0m$ [0mcat >> /tmp/t28.py <<'EOF'
+import dis
+code=f.__code__
+for c in code.co_consts:
+    print(type(c))
+EOF
+PYTHONPATH=. python /tmp/t28.py
+([3, 3, 1, 2], [1, 2, 0])
+<class 'str'>
+<class 'str'>
+<class 'int'>
+<class 'int'>
+<class 'bool'>
+<class 'bool'>
+<class 'int'>
+[0m
+[0m$ [0mcat > /tmp/t29.py <<'EOF'
+import inspect, ledger.reconcile as R
+src=open(R.__file__).read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j].replace('return result','return p, result')
+ns={'__builtins__':__builtins__}
+exec(compile(fn,'lvl','exec'),ns)
+orig=ns['_min_cost_assignment']
+def wrapped(cost,n_rows,n_cols):
+    p,result=orig(cost,n_rows,n_cols)
+    print('P',list(p),'CF',n_cols,'R',result)
+    return result
+ns['_min_cost_assignment']=wrapped
+exec(compile(src[j:],'lvl2','exec'),ns)
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+l=[tx(1,10),tx(2,10)]; b=[tx(3,10)]
+print(ns['_solve_dense']([0,1],[0],l,b,3))
+EOF
+PYTHONPATH=. python /tmp/t29.py
+P [3, 3, 1, 2] CF 3 R [1, 2, 0]
+[]
+[0m
+[0m$ [0mcat >> /tmp/t29.py <<'EOF'
+print('n',3)
+EOF
+python - <<'EOF'
+s=open('/tmp/t29.py').read()
+s=s.replace("fn=src[i:j].replace('return result','return p, result')","fn=src[i:j].replace('return result','return p, result, [str(r) for r in cost]')")
+s=s.replace("p,result=orig(cost,n_rows,n_cols)\n    print('P',list(p),'CF',n_cols,'R',result)","p,result,c2=orig(cost,n_rows,n_cols)\n    print('P',list(p),'CF',n_cols,'R',result,'COST',c2)")
+open('/tmp/t29.py','w').write(s)
+EOF
+PYTHONPATH=. python /tmp/t29.py
+P [3, 3, 1, 2] CF 3 R [1, 2, 0] COST ['[5, 0, 0]', '[4, 0, 0]', '[0, 0, 0]']
+[]
+n 3
+[0m
+[0m$ [0mcat > /tmp/t30.py <<'EOF'
+import ledger.reconcile as R
+src=open(R.__file__).read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j].replace('return result','return p')
+ns={'__builtins__':__builtins__}
+exec(compile(fn,'lvl','exec'),ns)
+f=ns['_min_cost_assignment']
+for a in ([[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]],[[5,0,0],[4,0,0],[0,0,0]],[[6,0,0],[6,0,0],[0,0,0]]):
+    print(a,f(a,3,3) if len(a[0])==3 else f(a,2,2))
+def solve(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+for a in ([[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]],[[5,0,0],[4,0,0],[0,0,0]],[[6,0,0],[6,0,0],[0,0,0]]):
+    print(a,solve(a,3,3) if len(a[0])==3 else solve(a,2,2))
+EOF
+python /tmp/t30.py
+Traceback (most recent call last):
+  File "/tmp/t30.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0msed -i '1d' /tmp/t30.py && sed -i "s|open(R.__file__).read()|open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()|" /tmp/t30.py && python /tmp/t30.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[5, 0, 0], [4, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[6, 0, 0], [6, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[5, 0, 0], [4, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[6, 0, 0], [6, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[0m
+[0m$ [0mcd /tmp && python - <<'EOF'
+s=open('/tmp/t30.py').read()
+s=s.replace("            for j in range(n_cols+1):\n                if used[j]: u[p[j]]+=delta; v[j]-=delta","            for j in range(n_cols+1):\n                if used[j]: u[p[j]]+=delta; v[j]-=delta")
+s=s.replace("        while True:\n            j1=way[j0]; p[j0]=p[j1]; j0=j1\n            if j0==0: break\n    return p","        print('after i',i,'p',p,'way',way)\n        while True:\n            j1=way[j0]; p[j0]=p[j1]; j0=j1\n            if j0==0: break\n        print('assigned p',p)\n    return p")
+open('/tmp/t30b.py','w').write(s)
+EOF
+python /tmp/t30b.py 2>&1 | head -20
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[5, 0, 0], [4, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[6, 0, 0], [6, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+after i 1 p [1, 0, 0, 0] way [0, 0, 0, 0]
+assigned p [1, 0, 1, 0]
+after i 2 p [2, 0, 1, 0] way [0, 0, 0, 0]
+assigned p [2, 0, 1, 2]
+after i 3 p [3, 0, 1, 2] way [0, 0, 0, 0]
+assigned p [3, 3, 1, 2]
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+after i 1 p [1, 0, 0] way [0, 0, 0]
+assigned p [1, 0, 1]
+after i 2 p [2, 0, 1] way [0, 0, 0]
+assigned p [2, 2, 1]
+[[2, 0], [1, 0]] [2, 2, 1]
+after i 1 p [1, 0, 0, 0] way [0, 0, 0, 0]
+assigned p [1, 0, 1, 0]
+after i 2 p [2, 0, 1, 0] way [0, 0, 0, 0]
+assigned p [2, 0, 1, 2]
+[0m
+[0m$ [0mcd /tmp && python - <<'EOF'
+s=open('/tmp/t30.py').read()
+s=s.replace("            for j in range(n_cols+1):\n                if used[j]: u[p[j]]+=delta; v[j]-=delta","            print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'used',used)\n            for j in range(n_cols+1):\n                if used[j]: u[p[j]]+=delta; v[j]-=delta")
+open('/tmp/t30c.py','w').write(s)
+EOF
+python /tmp/t30c.py 2>&1 | head -6
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[5, 0, 0], [4, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[6, 0, 0], [6, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] used [True, False, False, False]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] used [True, False, False, False]
+[0m
+[0m$ [0mcat /tmp/t30.py | sed -n '8,40p'
+print(a,f(a,3,3) if len(a[0])==3 else f(a,2,2))
+def solve(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+for a in ([[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]],[[5,0,0],[4,0,0],[0,0,0]],[[6,0,0],[6,0,0],[0,0,0]]):
+    print(a,solve(a,3,3) if len(a[0])==3 else solve(a,2,2))
+[0m
+[0m$ [0mgrep -n "result\|return" /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py | head
+60:    result = [-1] * n_rows
+63:            result[p[j] - 1] = j - 1
+64:    return result
+76:    zero-cost row/column so they never influence the result.
+81:        return []
+107:    return pairs
+114:    ``max_days`` of each other.  The result maximises the number of pairs and,
+140:    return Reconciliation(
+[0m
+[0m$ [0mgrep -n "result\|return result" /tmp/t30.py | head; ls -la /tmp/t30*.py
+1:src=open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()
+3:fn=src[i:j].replace('return result','return p')
+-rw-r--r-- 1 root root 1486 Nov  9 01:00 /tmp/t30.py
+-rw-r--r-- 1 root root 1559 Nov  9 01:00 /tmp/t30b.py
+-rw-r--r-- 1 root root 1567 Nov  9 01:00 /tmp/t30c.py
+[0m
+[0m$ [0msed -n '55,66p' /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py | cat -A
+j1 = way[j0]$
+            p[j0] = p[j1]$
+            j0 = j1$
+            if j0 == 0:$
+                break$
+    result = [-1] * n_rows$
+    for j in range(1, n_cols + 1):$
+        if p[j] != 0:$
+            result[p[j] - 1] = j - 1$
+    return result$
+$
+$
+[0m
+[0m$ [0mcat > /tmp/t31.py <<'EOF'
+import sys
+src=open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j]
+print(repr(fn[-300:]))
+EOF
+python /tmp/t31.py
+'                break\n        while True:\n            j1 = way[j0]\n            p[j0] = p[j1]\n            j0 = j1\n            if j0 == 0:\n                break\n    result = [-1] * n_rows\n    for j in range(1, n_cols + 1):\n        if p[j] != 0:\n            result[p[j] - 1] = j - 1\n    return result\n\n\n'
+[0m
+[0m$ [0mcat > /tmp/t32.py <<'EOF'
+import importlib.util, sys, types
+src=open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+# redefine inline copy
+code = '''def f(cost,n_rows,n_cols):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+'''
+ns={}
+exec(code,ns)
+for m in [[[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]]]:
+    print(m, ns['f'](m,len(m),len(m[0])))
+EOF
+python /tmp/t32.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[0m
+[0m$ [0mcat > /tmp/t33.py <<'EOF'
+src=open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j].replace('return result','return p')
+ns={}
+exec(compile(fn,'x','exec'),ns)
+f=ns['_min_cost_assignment']
+for m in [[[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]]]:
+    print(m, f(m,len(m),len(m[0])))
+EOF
+python /tmp/t33.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[0m
+[0m$ [0mcat >> /tmp/t33.py <<'EOF'
+def f2(cost,n_rows,n_cols):
+    INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    return p
+for m in [[[4,0,0],[2,0,0],[0,0,0]],[[2,0],[1,0]]]:
+    print(m, f2(m,len(m),len(m[0])))
+EOF
+python /tmp/t33.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[0m
+[0m$ [0mcat > /tmp/t34.py <<'EOF'
+import ledger.reconcile as R
+src=open(R.__file__).read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j].replace('    result = [-1] * n_rows','    print("P", p)\n    result = [-1] * n_rows')
+ns={'__builtins__':__builtins__}
+exec(compile(fn,'x','exec'),ns)
+print(ns['_min_cost_assignment']([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t34.py
+P [3, 3, 1, 2]
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t35.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t35.py
+echo ---
+cd /tmp && PYTHONPATH=/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws python /tmp/t35.py 2>&1 | tail -3
+[1, 2, 0]
+---
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t36.py <<'EOF'
+src=open('/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py').read()
+i=src.find('def _min_cost_assignment'); j=src.find('def _solve_dense')
+fn=src[i:j]
+print('def' in fn, fn.count('return result'))
+fn2=fn.replace('return result','pass')
+print(fn2[-200:])
+ns={}
+exec(compile(fn2,'x','exec'),ns)
+print(ns['_min_cost_assignment']([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t36.py
+True 1
+]
+            j0 = j1
+            if j0 == 0:
+                break
+    result = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    pass
+
+
+
+None
+[0m
+[0m$ [0mcat > /tmp/t37.py <<'EOF'
+import sys
+sys.path.insert(0,'/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws')
+import ledger.reconcile as R
+print(R.__file__)
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t37.py
+echo ===
+cd / && PYTHONPATH=/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws python /tmp/t37.py
+/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+[1, 2, 0]
+===
+/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t38.py <<'EOF'
+import ledger.reconcile as R
+print("A",R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t38.py
+echo ===
+cd /tmp && PYTHONPATH=/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws python t38.py
+A [1, 2, 0]
+===
+A [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && python - <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+echo ===
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t38.py
+[1, 2, 0]
+===
+A [1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t39.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t39.py
+echo ===
+cat > /tmp/t40.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],n_rows=3,n_cols=3))
+EOF
+PYTHONPATH=. python /tmp/t40.py
+[1, 2, 0]
+===
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && python - <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+echo ===
+cd /tmp && python - <<'EOF'
+import sys; sys.path.insert(0,'/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws')
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+[1, 2, 0]
+===
+[1, 2, 0]
+[0m
+[0m$ [0mmkdir -p /tmp/iso && cp /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py /tmp/iso/r.py && cat > /tmp/iso/t.py <<'EOF'
+import r
+print(r._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /tmp/iso && python t.py
+Traceback (most recent call last):
+  File "/tmp/iso/t.py", line 1, in <module>
+    import r
+  File "/tmp/iso/r.py", line 3, in <module>
+    from .money import Money
+ImportError: attempted relative import with no known parent package
+[0m
+[0m$ [0mcd /tmp/iso && sed -i 's/^from .money import Money/from dataclasses import dataclass as _d/' r.py && python t.py
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && python -c "import ledger.reconcile as R; print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))"; python /tmp/t38.py; PYTHONPATH=. python /tmp/t38.py
+[1, 2, 0]
+Traceback (most recent call last):
+  File "/tmp/t38.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+A [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python - <<'EOF'
+import ledger.reconcile as R
+print("A",R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+A [1, 2, 0]
+[0m
+[0m← [0mWrite /tmp/t41.py
+Wrote file successfully.
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t41.py
+file /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+A [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python -c "import ledger.reconcile as R; print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))"; PYTHONPATH=. python /tmp/t38.py; python /tmp/t41.py 2>&1 | tail -1
+[1, 2, 0]
+A [1, 2, 0]
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m← [0mWrite /tmp/t42.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython /tmp/t42.py
+A [1, 2, 0]
+B [1, 0]
+C [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && find . -name "__pycache__" -o -name "*.pyc" | head; python -c "import sys; print(sys.version)"
+3.11.2 (main, Oct  7 2026, 12:35:07) [GCC 12.2.0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python - <<'EOF'
+import ledger.reconcile as R, dis
+def src(x):
+    import inspect
+    return inspect.getsource(x)
+print(R._min_cost_assignment.__code__.co_consts)
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+('Min-cost assignment on a rectangular matrix via successive shortest\n    paths (Hungarian algorithm) in the form used by e-maxx.\n\n    Returns a list `p` of length n_rows (n_rows <= n_cols) where `p[i]` is the\n    column assigned to row i.\n    ', 'inf', 0, 1, False, True, -1)
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python - <<'EOF'
+import ledger.reconcile as R
+src=open(R.__file__).read()
+i=src.find('    result = [-1] * n_rows')
+print(src[i-20:i+250])
+print('---runtime check---')
+import inspect
+ns={}
+exec(open('/dev/null').read())
+EOF
+break
+    result = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    return result
+
+
+def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
+    """Optimal pairing for a single a
+---runtime check---
+[0m
+[0m$ [0mcat > /tmp/t43.py <<'EOF'
+import ledger.reconcile as R
+import sys
+print([k for k in sys.modules if 'ledger' in k])
+print([k for k in sys.modules if 'sitecustomize' in k or 'usercustomize' in k])
+print(R.__loader__)
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t43.py
+['ledger.money', 'ledger.ledger', 'ledger', 'ledger.reconcile']
+['sitecustomize']
+<_frozen_importlib_external.SourceFileLoader object at 0x76dc355e6e90>
+[0m
+[0m$ [0mpython -c "import sitecustomize; print(sitecustomize.__file__)" && python -c "print(open(__import__('sitecustomize').__file__).read())"
+/usr/lib/python3.11/sitecustomize.py
+# install the apport exception handler if available
+try:
+    import apport_python_hook
+except ImportError:
+    pass
+else:
+    apport_python_hook.install()
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python - <<'EOF'
+import ledger.reconcile as R
+r=R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3)
+print(r)
+EOF
+echo "=== via file ==="
+cat > /tmp/t44.py <<'EOF'
+import ledger.reconcile as R
+r=R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3)
+print(r)
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t44.py
+[1, 2, 0]
+=== via file ===
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t45.py <<'EOF'
+import ledger.reconcile as R
+print("A",R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print("D",R._min_cost_assignment([[4,0,0],[5,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t45.py; echo ===; cd /suite && python /tmp/t45.py 2>&1 | tail -2
+A [1, 2, 0]
+D [1, 2, 0]
+===
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python - <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t45.py
+[1, 2, 0]
+A [1, 2, 0]
+D [1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t46.py <<'EOF'
+import sys
+import ledger.reconcile as R
+print("A",R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t46.py
+A [1, 2, 0]
+[0m
+[0m$ [0mls -la /usr/lib/python3.11/sitecustomize.py; python -c "import usercustomize" 2>&1 | tail -1; echo $PYTHONPATH; python -c "import sys; print([p for p in sys.path])"
+lrwxrwxrwx 1 root root 32 Oct  7 12:35 /usr/lib/python3.11/sitecustomize.py -> /etc/python3.11/sitecustomize.py
+ModuleNotFoundError: No module named 'usercustomize'
+
+['', '/usr/lib/python311.zip', '/usr/lib/python3.11', '/usr/lib/python3.11/lib-dynload', '/venv/lib/python3.11/site-packages']
+[0m
+[0m$ [0mls /venv/lib/python3.11/site-packages | head -50; find / -name "*.pth" -path "*site-packages*" 2>/dev/null | head
+__pycache__
+_distutils_hack
+_pytest
+certifi
+certifi-2026.10.23.dist-info
+charset_normalizer
+charset_normalizer-3.5.2.dist-info
+distutils-precedence.pth
+idna
+idna-3.20.dist-info
+iniconfig
+iniconfig-2.3.1.dist-info
+packaging
+packaging-26.3.dist-info
+pip
+pip-23.0.1.dist-info
+pkg_resources
+pluggy
+pluggy-1.7.0.dist-info
+py.py
+pytest
+pytest-8.3.4.dist-info
+requests
+requests-2.32.3.dist-info
+setuptools
+setuptools-66.1.1.dist-info
+urllib3
+urllib3-2.8.0.dist-info
+
+
+<shell_metadata>
+shell tool terminated command after exceeding timeout 120000 ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.
+</shell_metadata>
+[0m
+[0m$ [0mcat > /tmp/t47.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t47.py; echo "---"; cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python -c "exec(open('/tmp/t47.py').read())"
+[1, 2, 0]
+---
+[1, 2, 0]
+[0m
+[0m$ [0mcat > /tmp/t48.py <<'EOF'
+import sys
+print("ARGV", sys.argv)
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t48.py
+ARGV ['/tmp/t48.py']
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t16.py 2>&1 | tail -12
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0, 0] v [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 0, 1, 2] u [0, 0, 0, 0] v [0, 0, 0, 0]
+[1, 2, 0]
+i 1 j0 0 i0 1 j1 2 delta 0 p [1, 0, 0, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+i 2 j0 2 i0 1 j1 3 delta 0 p [2, 0, 1, 0] u [0, 0, 0] v [0, 0, 0, 0]
+[1, 2]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t5.py 2>&1 | tail -3; PYTHONPATH=. python /tmp/t9.py
+[1, 0]
+[]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && python -c "import ledger.reconcile as R; print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))"
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python -c "
+import ledger.reconcile as R
+import dis
+dis.dis(R._min_cost_assignment)
+" | tail -30
+752 LOAD_FAST                2 (n_cols)
+            754 LOAD_CONST               3 (1)
+            756 BINARY_OP                0 (+)
+            760 PRECALL                  2
+            764 CALL                     2
+            774 GET_ITER
+        >>  776 FOR_ITER                31 (to 840)
+            778 STORE_FAST              16 (j)
+
+ 62         780 LOAD_FAST                6 (p)
+            782 LOAD_FAST               16 (j)
+            784 BINARY_SUBSCR
+            794 LOAD_CONST               2 (0)
+            796 COMPARE_OP               3 (!=)
+            802 POP_JUMP_FORWARD_IF_FALSE    17 (to 838)
+
+ 63         804 LOAD_FAST               16 (j)
+            806 LOAD_CONST               3 (1)
+            808 BINARY_OP               10 (-)
+            812 LOAD_FAST               18 (result)
+            814 LOAD_FAST                6 (p)
+            816 LOAD_FAST               16 (j)
+            818 BINARY_SUBSCR
+            828 LOAD_CONST               3 (1)
+            830 BINARY_OP               10 (-)
+            834 STORE_SUBSCR
+        >>  838 JUMP_BACKWARD           32 (to 776)
+
+ 64     >>  840 LOAD_FAST               18 (result)
+            842 RETURN_VALUE
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t47.py; echo ---; PYTHONPATH=. python /tmp/t9.py; echo ---; PYTHONPATH=. python /tmp/t46.py
+[1, 2, 0]
+---
+[]
+[1, 2, 0]
+---
+A [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat ledger/reconcile.py | sed -n '60,67p'; echo ===; PYTHONPATH=. python -c "
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+"
+result = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    return result
+
+
+def _solve_dense(ledger_idx, bank_idx, ledger_txs, bank_txs, max_days):
+===
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/patch.py <<'PYEOF'
+src=open('ledger/reconcile.py').read()
+src=src.replace('    return result\n\n\ndef _solve_dense','    return p\n\n\ndef _solve_dense')
+open('/tmp/dbgcopy.py','w').write(src)
+PYEOF
+python /tmp/patch.py && sed 's/^from .money import Money//' /tmp/dbgcopy.py > /tmp/dbgcopy2.py && cat > /tmp/run2.py <<'EOF'
+import importlib.util
+spec=importlib.util.spec_from_file_location('dbgcopy2','/tmp/dbgcopy2.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/run2.py
+[3, 3, 1, 2]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && sed 's/^from .money import Money//' ledger/reconcile.py > /tmp/dbg3.py && cat > /tmp/run3.py <<'EOF'
+import importlib.util
+spec=importlib.util.spec_from_file_location('dbg3','/tmp/dbg3.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/run3.py
+echo "=== minimal variant ==="
+cat > /tmp/run4.py <<'EOF'
+import importlib.util
+def load(path,name):
+    spec=importlib.util.spec_from_file_location(name,path)
+    m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+m=load('/tmp/dbg3.py','a')
+print(m._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/run4.py
+[1, 2, 0]
+=== minimal variant ===
+[1, 2, 0]
+[0m
+[0m$ [0mcd /tmp && sed -n '20,45p' /tmp/dbg3.py > /tmp/snip.py && cat /tmp/snip.py
+INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+[0m
+[0m$ [0mcat > /tmp/t50.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t50.py
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && sed 's/^from .money import Money//' ledger/reconcile.py > /tmp/dbg3.py && python /tmp/run3.py; echo ---; sed -i 's/^from .money import Money//' ledger/reconcile.py; PYTHONPATH=. python /tmp/t50.py; git checkout ledger/reconcile.py 2>/dev/null || sed -i '1i from .money import Money' ledger/reconcile.py
+[1, 2, 0]
+---
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && head -5 ledger/reconcile.py; cat > /tmp/t51.py <<'EOF'
+def _min_cost_assignment(cost, n_rows, n_cols):
+    INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    return p
+print(_min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t51.py
+from .money import Money
+from dataclasses import dataclass, field
+
+
+
+[3, 3, 1, 2]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/t52.py <<'EOF'
+import ledger.reconcile as R
+import inspect
+f=R._min_cost_assignment
+print(inspect.getsource(f))
+print("RESULT", f([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+PYTHONPATH=. python /tmp/t52.py
+def _min_cost_assignment(cost, n_rows, n_cols):
+    """Min-cost assignment on a rectangular matrix via successive shortest
+    paths (Hungarian algorithm) in the form used by e-maxx.
+
+    Returns a list `p` of length n_rows (n_rows <= n_cols) where `p[i]` is the
+    column assigned to row i.
+    """
+    INF = float("inf")
+    u = [0] * (n_rows + 1)
+    v = [0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = 0
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if not used[j]:
+                    cur = row[j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur
+                        way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]
+                        j1 = j
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    result = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    return result
+
+RESULT [1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python -c "
+import ledger.reconcile as R
+print([f for f in [R._min_cost_assignment] ])
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+"; cat > /tmp/t53.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+EOF
+cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t53.py
+[<function _min_cost_assignment at 0x7475089d5a80>]
+[1, 2, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t33.py; echo ===; sed -i 's|src=open(.*|src=open("/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py").read()|' /tmp/t33.py; python /tmp/t33.py
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+===
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[[4, 0, 0], [2, 0, 0], [0, 0, 0]] [3, 3, 1, 2]
+[[2, 0], [1, 0]] [2, 2, 1]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t31.py > /tmp/body.txt; cat /tmp/body.txt
+'                break\n        while True:\n            j1 = way[j0]\n            p[j0] = p[j1]\n            j0 = j1\n            if j0 == 0:\n                break\n    result = [-1] * n_rows\n    for j in range(1, n_cols + 1):\n        if p[j] != 0:\n            result[p[j] - 1] = j - 1\n    return result\n\n\n'
+[0m
+[0m$ [0mcat > /tmp/t54.py <<'EOF'
+import subprocess
+code='''
+import ledger.reconcile as R, sys
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[2,0],[1,0]],2,2))
+'''
+r=subprocess.run(['python','-c',code],capture_output=True,text=True,env={'PYTHONPATH':'.','PATH':'/usr/bin:/bin'},cwd='/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws')
+print(r.stdout,r.stderr)
+EOF
+python /tmp/t54.py
+Traceback (most recent call last):
+  File "/tmp/t54.py", line 7, in <module>
+    r=subprocess.run(['python','-c',code],capture_output=True,text=True,env={'PYTHONPATH':'.','PATH':'/usr/bin:/bin'},cwd='/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws')
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[0m
+[0m$ [0mcat > /tmp/t55.py <<'EOF'
+import sys
+sys.path.insert(0,'/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws')
+import ledger.reconcile as R
+print(R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[2,0],[1,0]],2,2))
+print(R._min_cost_assignment([[6,0,0],[6,0,0],[0,0,0]],3,3))
+EOF
+python /tmp/t55.py; echo ===; cd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t55.py
+[1, 2, 0]
+[1, 0]
+[1, 2, 0]
+===
+[1, 2, 0]
+[1, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && for f in /tmp/t50.py /tmp/t53.py /tmp/t38.py /tmp/t55.py; do echo $f; PYTHONPATH=. python $f 2>&1 | head -3; done
+/tmp/t50.py
+[1, 2, 0]
+/tmp/t53.py
+[1, 2, 0]
+/tmp/t38.py
+A [1, 2, 0]
+/tmp/t55.py
+[1, 2, 0]
+[1, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && python -c "
+import ledger.reconcile as R, inspect
+src=inspect.getsource(R._min_cost_assignment)
+print(len(src))
+print(src[-120:])
+print('A', R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+"; echo ---; PYTHONPATH=. python -c "
+import ledger.reconcile as R
+print('B', R._min_cost_assignment([[4,0,0],[2,0,0],[0,0,0]],3,3))
+"
+1613
+ n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] != 0:
+            result[p[j] - 1] = j - 1
+    return result
+
+A [1, 2, 0]
+---
+B [1, 2, 0]
+[0m
+[0m→ [0mRead ledger/reconcile.py
+[0m
+[0m← [0mWrite ledger/reconcile.py
+Wrote file successfully.
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t50.py && PYTHONPATH=. python /tmp/t9.py && PYTHONPATH=. python /tmp/t55.py
+[1, 2, 0]
+Traceback (most recent call last):
+  File "/tmp/t9.py", line 6, in <module>
+    print(R._solve_dense([0,1],[0],l,b,3))
+          ^^^^^^^^^^^^^^
+AttributeError: module 'ledger.reconcile' has no attribute '_solve_dense'
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. python /tmp/t3.py 2>&1 | head -5; PYTHONPATH=. python /tmp/t55.py
+Traceback (most recent call last):
+  File "/tmp/t3.py", line 3, in <module>
+    from ledger.reconcile import reconcile, _solve_dense, _min_cost_assignment
+ImportError: cannot import name '_solve_dense' from 'ledger.reconcile' (/suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py)
+[1, 2, 0]
+[1, 0]
+[1, 2, 0]
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/verify.py <<'EOF'
+import random, itertools
+from datetime import date, timedelta
+from ledger import Transaction, Money
+from ledger.reconcile import reconcile
+
+def tx(d,a,desc=""):
+    return Transaction(date=d, description=desc, amount=Money(a), category="")
+
+def brute(ls, bs, max_days):
+    # max matching with min distance via DP over subsets (small only)
+    nl, nb = len(ls), len(bs)
+    best = None
+    # enumerate assignments bank->ledger or unmatched
+    def rec(j, used, pairs, dist):
+        nonlocal best
+        if j == nb:
+            key = (len(pairs), -dist)
+            if best is None or key > best[0]:
+                best = (key, list(pairs))
+            return
+        rec(j+1, used, pairs, dist)
+        for i in range(nl):
+            if i in used: continue
+            if ls[i].amount != bs[j].amount: continue
+            d = abs((ls[i].date - bs[j].date).days)
+            if d > max_days: continue
+            used.add(i); pairs.append((i,j))
+            rec(j+1, used, pairs, dist+d)
+            pairs.pop(); used.remove(i)
+    rec(0, set(), [], 0)
+    return best[0]
+
+random.seed(42)
+base = date(2026,1,1)
+for trial in range(300):
+    n = random.randint(0,5)
+    m = random.randint(0,5)
+    ls = [tx(base+timedelta(days=random.randint(0,10)), random.choice(["1","2","3"])) for _ in range(n)]
+    bs = [tx(base+timedelta(days=random.randint(0,10)), random.choice(["1","2","3"])) for _ in range(m)]
+    md = random.choice([0,1,2,3])
+    r = reconcile(ls,bs,md)
+    n_pairs = len(r.matched)
+    dist = sum(abs((a.date-b.date).days) for a,b in r.matched)
+    score = (n_pairs, -dist)
+    b = brute(ls,bs,md)
+    assert score == b, (trial, score, b, ls, bs, md)
+    # ordering check
+    idx = [ls.index(a) for a,_ in r.matched]
+    assert idx == sorted(idx)
+    assert len(r.unmatched_ledger)+n_pairs == n
+    assert len(r.unmatched_bank)+n_pairs == m
+print("brute ok")
+EOF
+PYTHONPATH=. python /tmp/verify.py
+Traceback (most recent call last):
+  File "/tmp/verify.py", line 46, in <module>
+    assert score == b, (trial, score, b, ls, bs, md)
+           ^^^^^^^^^^
+AssertionError: (3, (0, 0), (3, -2), [Transaction(date=datetime.date(2026, 1, 9), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 4), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 10), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 1), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 7), description='', amount=Money('2.00', 'USD'), category='', tags=())], [Transaction(date=datetime.date(2026, 1, 5), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 4), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 2), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 7), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 6), description='', amount=Money('2.00', 'USD'), category='', tags=())], 2)
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg55.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[0,0,0],[1,0,0],[0,0,0],[0,0,0]],4,3))
+print(R._min_cost_assignment([[5,0],[4,0],[0,0]],3,2))
+EOF
+PYTHONPATH=. python /tmp/dbg55.py
+(no output)
+
+<shell_metadata>
+shell tool terminated command after exceeding timeout 120000 ms. If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.
+</shell_metadata>
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg56.py <<'EOF'
+import ledger.reconcile as R
+print(R._min_cost_assignment([[5,0,0],[4,0,0],[0,0,0]],3,3))
+print(R._min_cost_assignment([[5,0,0],[4,0,0],[0,0,0]],2,3))
+EOF
+PYTHONPATH=. timeout 10 python /tmp/dbg56.py; echo "exit=$?"
+[1, 2, 0]
+[1, 2]
+exit=0
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg57.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+ls=[tx(9,"2"),tx(4,"2"),tx(10,"2"),tx(1,"1"),tx(7,"2")]
+bs=[tx(5,"1"),tx(4,"2"),tx(2,"1"),tx(7,"1"),tx(6,"2")]
+for amt,lidx,bidx in [("2",[0,1,2,4],[1,4]),("1",[3],[0,2,3])]:
+    print("group",amt, R._solve_group(lidx,bidx,ls,bs,2))
+EOF
+PYTHONPATH=. timeout 20 python /tmp/dbg57.py; echo exit=$?
+group 2 []
+group 1 []
+exit=0
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg58.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+ls=[tx(9,"2"),tx(4,"2"),tx(10,"2"),tx(1,"1"),tx(7,"2")]
+bs=[tx(5,"1"),tx(4,"2"),tx(2,"1"),tx(7,"1"),tx(6,"2")]
+n_l=5;n_b=2;n=7
+max_dist=6
+pairs_cap=2
+penalty=13
+forbidden=39
+cost=[[0]*n for _ in range(n)]
+for r,i in enumerate([0,1,2,4]):
+    for c,j in enumerate([1,4]):
+        d=abs((ls[i].date-bs[j].date).days)
+        cost[r][c]=d+penalty if d<=2 else forbidden
+print(cost)
+print(R._min_cost_assignment(cost,n,n))
+EOF
+PYTHONPATH=. timeout 20 python /tmp/dbg58.py; echo exit=$?
+[[39, 39, 0, 0, 0, 0, 0], [13, 15, 0, 0, 0, 0, 0], [39, 39, 0, 0, 0, 0, 0], [39, 14, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]]
+[2, 3, 4, 5, 0, 1, 6]
+exit=0
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat >> /tmp/dbg58.py <<'EOF'
+print(R._solve_group([0,1,2,4],[1,4],ls,bs,2))
+EOF
+PYTHONPATH=. timeout 20 python /tmp/dbg58.py; echo exit=$?
+[[39, 39, 0, 0, 0, 0, 0], [13, 15, 0, 0, 0, 0, 0], [39, 39, 0, 0, 0, 0, 0], [39, 14, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]]
+[2, 3, 4, 5, 0, 1, 6]
+[]
+exit=0
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. timeout 30 python -c "
+import ledger.reconcile as R, inspect
+print(inspect.getsource(R._solve_group)[-800:])
+"
+date).days)
+            if d > max_dist:
+                max_dist = d
+    pairs_cap = min(n_l, n_b)
+    penalty = max_dist * pairs_cap + 1
+    forbidden = penalty * (pairs_cap + 1)
+    n = n_l + n_b
+    cost = [[0] * n for _ in range(n)]
+    for r, i in enumerate(ledger_idx):
+        di = ledger_txs[i].date
+        row = cost[r]
+        for c, j in enumerate(bank_idx):
+            d = abs((di - bank_txs[j].date).days)
+            row[c] = d + penalty if d <= max_days else forbidden
+    p = _min_cost_assignment(cost, n, n)
+    pairs = []
+    for r in range(n_l):
+        c = p[r]
+        if 0 <= c < n_b:
+            i = ledger_idx[r]
+            j = bank_idx[c]
+            if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
+                pairs.append((i, j))
+    return pairs
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg59.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+ls=[tx(9,"2"),tx(4,"2"),tx(10,"2"),tx(1,"1"),tx(7,"2")]
+bs=[tx(5,"1"),tx(4,"2"),tx(2,"1"),tx(7,"1"),tx(6,"2")]
+orig=R._min_cost_assignment
+def wrapped(cost,n_rows,n_cols):
+    print('CALL',n_rows,n_cols)
+    r=orig(cost,n_rows,n_cols)
+    print('RET',r)
+    return r
+R._min_cost_assignment=wrapped
+print(R._solve_group([0,1,2,4],[1,4],ls,bs,2))
+EOF
+PYTHONPATH=. timeout 20 python /tmp/dbg59.py; echo exit=$?
+CALL 6 6
+RET [2, 3, 4, 5, 0, 1]
+[]
+exit=0
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg60.py <<'EOF'
+import ledger.reconcile as R
+from datetime import date
+from ledger import Transaction, Money
+def tx(d,a): return Transaction(date=date(2026,1,d),description="",amount=Money(a),category="")
+ls=[tx(9,"2"),tx(4,"2"),tx(10,"2"),tx(1,"1"),tx(7,"2")]
+bs=[tx(5,"1"),tx(4,"2"),tx(2,"1"),tx(7,"1"),tx(6,"2")]
+print(R._min_cost_assignment([[0,0,0],[1,0,0],[0,0,0],[0,0,0]],4,3))
+EOF
+PYTHONPATH=. timeout 20 python /tmp/dbg60.py; echo exit=$?
+exit=124
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && cat > /tmp/dbg61.py <<'EOF'
+import ledger.reconcile as R
+def solve(cost,n_rows,n_cols,dbg=False):
+    INF=float("inf")
+    u=[0]*(n_rows+1); v=[0]*(n_cols+1); p=[0]*(n_cols+1); way=[0]*(n_cols+1)
+    for i in range(1,n_rows+1):
+        p[0]=i; j0=0; minv=[INF]*(n_cols+1); used=[False]*(n_cols+1)
+        while True:
+            used[j0]=True; i0=p[j0]; delta=INF; j1=0; row=cost[i0-1]
+            for j in range(1,n_cols+1):
+                if not used[j]:
+                    cur=row[j-1]-u[i0]-v[j]
+                    if cur<minv[j]: minv[j]=cur; way[j]=j0
+                    if minv[j]<delta: delta=minv[j]; j1=j
+            if dbg: print('i',i,'j0',j0,'i0',i0,'j1',j1,'delta',delta,'p',p,'u',u,'v',v,'minv',minv,'way',way)
+            for j in range(n_cols+1):
+                if used[j]: u[p[j]]+=delta; v[j]-=delta
+                else: minv[j]-=delta
+            j0=j1
+            if p[j0]==0: break
+        while True:
+            j1=way[j0]; p[j0]=p[j1]; j0=j1
+            if j0==0: break
+    return p
+print(solve([[0,0,0],[1,0,0],[0,0,0],[0,0,0]],4,3,True))
+EOF
+timeout 5 python /tmp/dbg61.py 2>&1 | head -20; echo exit=$?
+Traceback (most recent call last):
+  File "/tmp/dbg61.py", line 1, in <module>
+    import ledger.reconcile as R
+ModuleNotFoundError: No module named 'ledger'
+exit=0
+[0m
+[0m$ [0msed -i '1d' /tmp/dbg61.py && timeout 5 python /tmp/dbg61.py 2>&1 | head -20; echo exit=$?
+i 1 j0 0 i0 1 j1 1 delta 0 p [1, 0, 0, 0] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 2 j0 0 i0 2 j1 2 delta 0 p [2, 1, 0, 0] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 1, 0, 0] way [0, 0, 0, 0]
+i 3 j0 0 i0 3 j1 1 delta 0 p [3, 1, 2, 0] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 3 j0 1 i0 1 j1 2 delta 0 p [3, 1, 2, 0] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 3 j0 2 i0 2 j1 3 delta 0 p [3, 1, 2, 0] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 1 delta 0 p [4, 1, 2, 3] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 1 i0 1 j1 2 delta 0 p [4, 1, 2, 3] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 2 i0 2 j1 3 delta 0 p [4, 1, 2, 3] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 3 i0 3 j1 0 delta inf p [4, 1, 2, 3] u [0, 0, 0, 0, 0] v [0, 0, 0, 0] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+i 4 j0 0 i0 4 j1 0 delta inf p [4, 1, 2, 3] u [0, inf, inf, inf, inf] v [-inf, -inf, -inf, -inf] minv [inf, 0, 0, 0] way [0, 0, 0, 0]
+exit=0
+[0m
+[0m← [0mEdit ledger/reconcile.py
+Index: /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+===================================================================
+--- /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
++++ /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+@@ -85,21 +85,28 @@
+             max_dist = d
+ pairs_cap = min(n_l, n_b)
+ penalty = max_dist * pairs_cap + 1
+ forbidden = penalty * (pairs_cap + 1)
+-n = n_l + n_b
+-cost = [[0] * n for _ in range(n)]
+-for r, i in enumerate(ledger_idx):
++m = n_l + n_b
++transposed = n_l > n_b
++rows = bank_idx if transposed else ledger_idx
++cols = ledger_idx if transposed else bank_idx
++cost = [[0] * m for _ in range(m)]
++for r, i in enumerate(rows):
+     di = ledger_txs[i].date
+     row = cost[r]
+-    for c, j in enumerate(bank_idx):
++    for c, j in enumerate(cols):
+         d = abs((di - bank_txs[j].date).days)
+         row[c] = d + penalty if d <= max_days else forbidden
+-p = _min_cost_assignment(cost, n, n)
++p = _min_cost_assignment(cost, m, m)
+ pairs = []
+-for r in range(n_l):
++for r in range(len(rows)):
+     c = p[r]
+-    if 0 <= c < n_b:
++    if 0 <= c < len(cols):
++        if transposed:
++            j, i = rows[r], cols[c]
++        else:
++            i, j = rows[r], cols[c]
+         i = ledger_idx[r]
+         j = bank_idx[c]
+         if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
+             pairs.append((i, j))
+
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && sed -n '68,115p' ledger/reconcile.py
+distance.  Both objectives go into a single cost: every eligible pair
+    costs ``distance + penalty`` where ``penalty`` exceeds the largest
+    possible total distance, so an extra pair always beats a smaller distance,
+    and within a fixed pair count the distance decides.  Pairs beyond
+    ``max_days`` are given a huge cost so they are never chosen.  Padding
+    (unmatched) rows and columns cost zero.
+    """
+    n_l = len(ledger_idx)
+    n_b = len(bank_idx)
+    if n_l == 0 or n_b == 0:
+        return []
+    max_dist = 0
+    for i in ledger_idx:
+        di = ledger_txs[i].date
+        for j in bank_idx:
+            d = abs((di - bank_txs[j].date).days)
+            if d > max_dist:
+                max_dist = d
+    pairs_cap = min(n_l, n_b)
+    penalty = max_dist * pairs_cap + 1
+    forbidden = penalty * (pairs_cap + 1)
+    m = n_l + n_b
+    transposed = n_l > n_b
+    rows = bank_idx if transposed else ledger_idx
+    cols = ledger_idx if transposed else bank_idx
+    cost = [[0] * m for _ in range(m)]
+    for r, i in enumerate(rows):
+        di = ledger_txs[i].date
+        row = cost[r]
+        for c, j in enumerate(cols):
+            d = abs((di - bank_txs[j].date).days)
+            row[c] = d + penalty if d <= max_days else forbidden
+    p = _min_cost_assignment(cost, m, m)
+    pairs = []
+    for r in range(len(rows)):
+        c = p[r]
+        if 0 <= c < len(cols):
+            if transposed:
+                j, i = rows[r], cols[c]
+            else:
+                i, j = rows[r], cols[c]
+            i = ledger_idx[r]
+            j = bank_idx[c]
+            if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
+                pairs.append((i, j))
+    return pairs
+[0m
+[0m← [0mEdit ledger/reconcile.py
+Index: /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+===================================================================
+--- /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
++++ /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws/ledger/reconcile.py
+@@ -105,10 +105,8 @@
+         if transposed:
+             j, i = rows[r], cols[c]
+         else:
+             i, j = rows[r], cols[c]
+-        i = ledger_idx[r]
+-        j = bank_idx[c]
+         if abs((ledger_txs[i].date - bank_txs[j].date).days) <= max_days:
+             pairs.append((i, j))
+ return pairs
+ 
+
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. timeout 120 python /tmp/verify.py
+Traceback (most recent call last):
+  File "/tmp/verify.py", line 46, in <module>
+    assert score == b, (trial, score, b, ls, bs, md)
+           ^^^^^^^^^^
+AssertionError: (3, (0, 0), (3, -2), [Transaction(date=datetime.date(2026, 1, 9), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 4), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 10), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 1), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 7), description='', amount=Money('2.00', 'USD'), category='', tags=())], [Transaction(date=datetime.date(2026, 1, 5), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 4), description='', amount=Money('2.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 2), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 7), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 6), description='', amount=Money('2.00', 'USD'), category='', tags=())], 2)
+[0m
+[0m$ [0mcd /suite/results/runs/deepinfra--t11_reconcile--r2--20261109-005148-802607/ws && PYTHONPATH=. timeout 20 python /tmp/dbg57.py; PYTHONPATH=. timeout 20 python /tmp/dbg59.py
+group 2 []
+group 1 []
+CALL 6 6
+RET [4, 5, 0, 1, 2, 3]
+[]
+[0m

@@ -1,0 +1,1 @@
+Replaced the O(n²) list scan with a set lookup, so dedupe is now O(n). All 4 tests pass.

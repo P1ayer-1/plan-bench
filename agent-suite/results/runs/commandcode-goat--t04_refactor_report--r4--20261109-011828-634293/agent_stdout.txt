@@ -1,0 +1,2 @@
+I'll start by exploring the codebase to understand the structure and existing code.
+Implemented all four functions in `ledger/report.py`. `monthly_summary` now composes `group_by_month` and `totals_by_category` with unchanged output. All 4 tests pass.

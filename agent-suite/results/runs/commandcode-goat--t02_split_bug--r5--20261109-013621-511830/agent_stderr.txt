@@ -1,0 +1,63 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m✱ [0mGlob "**/*money*"[90m 1 match[0m
+[0m
+[0m$ [0mls -la && grep -rn "def split" --include="*.py" .
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:36 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:36 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  9 01:36 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m$ [0mls tests && grep -rn "split" tests
+test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t02_split_bug--r5--20261109-013621-511830/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t02_split_bug--r5--20261109-013621-511830/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t02_split_bug--r5--20261109-013621-511830/ws/ledger/money.py
+@@ -37,11 +37,18 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts, distributing leftover cents to the earliest parts."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    total = int((self.amount / CENT).to_integral_value())
++    sign = -1 if total < 0 else 1
++    base, remainder = divmod(abs(total), n)
++    return [
++        Money(sign * (base + (1 if i < remainder else 0)) * CENT, self.currency)
++        for i in range(n)
++    ]
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger.money import Money
+for amt,n in [('10.00',3),('-10.00',3),('0.01',3),('10.00',7)]:
+    p=Money(amt).split(n)
+    print(amt,n,[str(x) for x in p],sum(x.amount for x in p))
+"
+....                                                                     [100%]
+4 passed in 1.13s
+10.00 3 ['3.34 USD', '3.33 USD', '3.33 USD'] 10.00
+-10.00 3 ['-3.34 USD', '-3.33 USD', '-3.33 USD'] -10.00
+0.01 3 ['0.01 USD', '0.00 USD', '0.00 USD'] 0.01
+10.00 7 ['1.43 USD', '1.43 USD', '1.43 USD', '1.43 USD', '1.43 USD', '1.43 USD', '1.42 USD'] 10.00
+[0m

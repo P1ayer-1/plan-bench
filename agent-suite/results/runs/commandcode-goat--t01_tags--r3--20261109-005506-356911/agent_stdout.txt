@@ -1,0 +1,1 @@
+Done. Added `tag` filter to `Ledger.query()` (ledger/ledger.py:22) and `Ledger.tags()` returning sorted distinct tags (ledger/ledger.py:36). All 4 tests pass.

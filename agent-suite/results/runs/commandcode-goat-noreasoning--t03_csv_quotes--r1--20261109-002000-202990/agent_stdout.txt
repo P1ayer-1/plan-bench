@@ -1,0 +1,1 @@
+Fixed `ledger/parser.py` to use the `csv` module: quoted commas and `""` escapes work, CRLF is tolerated, missing `tags` defaults to empty, and wrong field counts raise `ValueError` with the 1-based line number. All 4 tests pass.

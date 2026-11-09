@@ -1,0 +1,2 @@
+My test arithmetic was wrong: 100+20-150 = -30. Fixing the test.
+Implemented `ledger/budget.py` with `budget_report`, plus tests covering rollover, caps, out-of-range transactions, refunds, and error cases. `python -m pytest -q` passes (6 passed).

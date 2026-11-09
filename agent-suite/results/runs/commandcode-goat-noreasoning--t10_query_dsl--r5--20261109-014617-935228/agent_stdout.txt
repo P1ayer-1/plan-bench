@@ -1,0 +1,3 @@
+I'll create a `search.py` module with a lexer/parser, then add `Ledger.search`.
+Let me clean up the global-variable approach in the lexer.
+Added `Ledger.search(query)` in `ledger/ledger.py:33` backed by `ledger/search.py`. It supports all fields, operators, quoting/escapes, implicit AND, precedence, and raises `ValueError` on malformed input. Tests pass.

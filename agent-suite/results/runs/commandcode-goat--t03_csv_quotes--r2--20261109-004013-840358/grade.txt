@@ -1,0 +1,41 @@
+tags_column():
+>       [t] = parse_csv(H + "2026-01-01,A,-1.00,x\n")
+
+_hidden_test_t03_csv_quotes.py:20: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+text = 'date,description,amount,category,tags\n2026-01-01,A,-1.00,x\n'
+
+    def parse_csv(text):
+        """Parse CSV text with header date,description,amount,category,tags.
+        tags are separated by ';'. Returns a list of Transaction."""
+        if not text.strip():
+            return []
+    
+        reader = csv.reader(io.StringIO(text, newline=""))
+        out = []
+        header = None
+        expected = None
+    
+        for row in reader:
+            line_num = reader.line_num
+            if not row or (len(row) == 1 and not row[0].strip()):
+                continue
+    
+            if header is None:
+                header = [h.strip() for h in row]
+                if header not in (HEADER, HEADER[:-1]):
+                    raise ValueError(f"bad header: {header}")
+                expected = len(header)
+                continue
+    
+            if len(row) != expected:
+>               raise ValueError(
+                    f"line {line_num}: expected {expected} fields, got {len(row)}"
+                )
+E               ValueError: line 2: expected 5 fields, got 4
+
+ledger/parser.py:34: ValueError
+=========================== short test summary info ============================
+FAILED _hidden_test_t03_csv_quotes.py::test_missing_tags_column - ValueError:...
+1 failed, 5 passed in 0.23s

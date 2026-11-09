@@ -1,0 +1,1 @@
+Fixed `Money.split()` in `ledger/money.py:40` to allocate cents distributively, with sign-aware remainder handling and input validation. All 4 tests pass.

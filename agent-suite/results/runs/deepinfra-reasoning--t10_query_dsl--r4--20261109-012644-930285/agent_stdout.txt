@@ -1,0 +1,5 @@
+Implemented `Ledger.search(query)` with full parsing for fields, comparisons, quoted values/escapes, implicit `AND`, precedence, parentheses, and `ValueError` handling.
+
+Added `ledger/search.py:1`, wired into `ledger/ledger.py:35`, and added coverage in `tests/test_search.py:1`.
+
+`python -m pytest -q` → **26 passed**.

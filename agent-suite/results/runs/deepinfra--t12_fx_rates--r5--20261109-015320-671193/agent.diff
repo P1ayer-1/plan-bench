@@ -1,0 +1,83 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..092ad51
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,54 @@
++from datetime import date
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++_PREC = 50
++
++
++class RateTable:
++    """Historical exchange rates, stored as exact Decimals."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on: date, base: str, quote: str, rate):
++        self._rates.setdefault((base, quote), {})[on] = Decimal(str(rate))
++
++    def _direct(self, base, quote, on):
++        series = self._rates.get((base, quote))
++        if not series:
++            return None
++        best = None
++        for d, r in series.items():
++            if d <= on and (best is None or d > best):
++                best = d
++        if best is None:
++            return None
++        return series[best]
++
++    def rate(self, base, quote, on: date) -> Decimal:
++        if base == quote:
++            return Decimal(1)
++        r = self._direct(base, quote, on)
++        if r is not None:
++            return r
++        r = self._direct(quote, base, on)
++        if r is not None:
++            with localcontext() as ctx:
++                ctx.prec = max(_PREC, 28)
++                return Decimal(1) / r
++        with localcontext() as ctx:
++            ctx.prec = max(_PREC, 28)
++            left = self.rate(base, "USD", on)
++            right = self.rate("USD", quote, on)
++            return left * right
++
++
++def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
++    if money.currency == to:
++        return Money(money.amount, to)
++    with localcontext() as ctx:
++        ctx.prec = max(_PREC, 28)
++        amount = money.amount * table.rate(money.currency, to, on)
++    return Money(amount, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..15842f0 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -48,3 +48,18 @@ class Ledger:
+                 result.append(tx)
+         self.transactions = result
+         return self
++
++    def balance_in(self, currency, table, on=None):
++        from decimal import Decimal, localcontext
++        if not self.transactions:
++            return Money.zero(currency)
++        with localcontext() as ctx:
++            ctx.prec = 50
++            total = Decimal(0)
++            for tx in self.transactions:
++                when = on if on is not None else tx.date
++                if tx.amount.currency == currency:
++                    total += tx.amount.amount
++                else:
++                    total += tx.amount.amount * table.rate(tx.amount.currency, currency, when)
++        return Money(total, currency)

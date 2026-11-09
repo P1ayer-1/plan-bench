@@ -1,0 +1,1 @@
+Done. `ledger/budget.py` implements `budget_report` with month-range validation, per-category carry-over (floored at zero, capped by `rollover_cap`), spend/refund handling, and currency mismatch checks. Existing tests pass (4 passed).

@@ -1,0 +1,28 @@
+I'll add a query module and wire it into `Ledger`.
+The tokenizer needs to handle quotes adjacent to `field:` and quotes appearing mid-word. Let me rewrite cleanly.
+Now wire into Ledger and fix quoted-adjacent-value parsing (`desc:"coffee shop"` produces WORD `desc:` + VALUE). Let me check that path: `_scan` builds parts `desc:` then reads quoted -> word `desc:coffee shop`. Good.
+Let me test the various cases, especially edge cases where a bare word appears with quotes.
+The `amount<-20` split: `_split_value` requires `:`. Amount/date use OP parsing. Fix.
+`amount >= 10.50` has spaces: tokens `amount`, `>=`, `10.50`. Need compare terms assembled from separate tokens. Handle in parser: recognize a WORD `amount`/`date` followed by a WORD operator token.
+I'll add a parser routine that assembles comparison terms spanning tokens.
+That condition is convoluted; simplify it.
+All good. Check `amount = 5` (space both sides) and `amount<abc` — space case failed. `amount = 5`: token `=` alone with no operand after; rest="=" -> operand "" then next token value. But output says missing operand. Let me debug.
+`rest == "="` matches, operand "" then val "5". Why missing operand? OPERATORS order includes `<=" etc; `"="` is last, fine. Maybe `_assemble_comparison` never called since raw=="amount" yes. Let me trace.
+The direct call doesn't advance past "amount" so peek is "amount". In real flow parse_primary advances first, so should work. But `amount = 5` earlier gave missing operand... Actually that was `amount= 5` (no space before =) -> token `amount=` value "" -> missing operand. Correct behavior per spec? Whitespace around OP allowed, so `amount= 5` should be valid. Also `amount = 5` real test.
+`amount= 5` should work (whitespace after OP). Token is `amount=` with operand empty; `_assemble_comparison` only triggers when raw=="amount". Fix parse_primary to detect raw that is a comparison field prefix with an incomplete/garbage operator span, and also handle the `amount=` case by assembling when raw starts with `amount`/`date` and the remainder isn't a complete comparison.
+Now verify escaping, quoted values with parentheses, and that quoted string containing a space adjacent to a keyword works. Also `desc:"a\"b"`. And check that a bare quoted value inside a term after field works.
+`desc:(there)` — VALUE bare word excludes parentheses, so this is malformed. Good. Now let me clean up: remove the odd `_is_operator` `head/`: check quoted value where the bare word is just `"..."` with no field prefix -> should error. Also fields are lowercase; `CATEGORY:food` must error as unknown field. Check.
+`desc:""` — empty quoted string. Spec says VALUE is bare word or quoted string; empty quoted could arguably be valid, but matching empty substring would match everything. I'll treat empty value as missing. Fine.
+
+Potential bug: `_scan` for a quote immediately following a word with no colon e.g. `foo"bar"` becomes word `foobar`; acceptable. But what about quoted string containing `)` at top-level? handled since quote read.
+
+One concern: implicit AND between `)` and term, and between terms. Tested. Also `OR` right operand missing gives missing operand - good.
+
+Let me view final file and run a broader sanity plus ensure `head`-detection doesn't break words like `amountx`. `head` split gives `amountx`, not in fields, so `_term` raises expected term. Good.
+
+Run full pytest and lint-ish compile.
+Let me simplify the leftover awkward code and review the final module once.
+Remove unused `InvalidOperation` import, and the unused `"VALUE"` token kind path is unreachable harmlessly (only if quote at token start, which then errors in parser as unexpected token — but actually a standalone quoted value like `"foo"` errors correctly). Clean import.
+Let me add tests covering the new feature to the existing suite.
+All tests pass. Also export nothing new needed. Final check that `search` exists on Ledger and retains order (it filters in order). Done.
+Implemented `Ledger.search(query)` in `ledger/query.py`, wired into `ledger/ledger.py:37`. It handles all fields, quoted values/escapes, AND/OR/NOT with correct precedence and implicit AND, parentheses, whitespace-tolerant operators, and raises `ValueError` for the listed malformed cases. Added tests; all 8 pass.

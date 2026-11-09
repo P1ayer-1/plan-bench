@@ -1,0 +1,4 @@
+Now add the `search` method to Ledger.
+Implemented `Ledger.search` with a tokenizer/parser in `ledger/search.py`.
+
+Supports fields (`category:`, `tag:`, `desc:`, quoted values with `\"`/`\\`), `amount`/`date` comparisons with optional whitespace, `AND`/`OR`/`NOT`, parentheses, implicit `AND`, empty query, and `ValueError` on all listed malformed cases. All existing tests pass (`4 passed`).

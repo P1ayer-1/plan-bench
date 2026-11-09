@@ -1,0 +1,341 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..964539f 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -32,6 +32,11 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching a search-language query, in order."""
++        from .search import search as _search
++        return _search(self, query)
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..fff0aeb
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,253 @@
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++
++class _Tokenizer:
++    def __init__(self, text):
++        self.text = text
++        self.pos = 0
++        self.tokens = []
++        self._tokenize()
++
++    def _tokenize(self):
++        text = self.text
++        n = len(text)
++        while self.pos < n:
++            c = text[self.pos]
++            if c.isspace():
++                self.pos += 1
++                continue
++            if c == "(":
++                self.tokens.append(("LPAREN", None))
++                self.pos += 1
++                continue
++            if c == ")":
++                self.tokens.append(("RPAREN", None))
++                self.pos += 1
++                continue
++            if c == '"':
++                quoted = self._quoted()
++                if self.tokens and self.tokens[-1][0] == "WORD" and self.tokens[-1][1].endswith(":"):
++                    kind, prev = self.tokens.pop()
++                    self.tokens.append(("WORD", prev + quoted))
++                else:
++                    self.tokens.append(("WORD", quoted))
++                continue
++            if c in "<>=":
++                self.tokens.append(("OP", self._op()))
++                continue
++            word = self._bare()
++            low = word.lower()
++            if low in ("and", "or", "not"):
++                self.tokens.append((low.upper(), None))
++            else:
++                self.tokens.append(("WORD", word))
++        self.tokens.append(("EOF", None))
++
++    def _quoted(self):
++        text = self.text
++        n = len(text)
++        self.pos += 1
++        out = []
++        while self.pos < n:
++            c = text[self.pos]
++            if c == "\\":
++                if self.pos + 1 >= n:
++                    raise ValueError("unterminated escape in quote")
++                nxt = text[self.pos + 1]
++                if nxt == '"':
++                    out.append('"')
++                elif nxt == "\\":
++                    out.append("\\")
++                else:
++                    raise ValueError(f"invalid escape: \\{nxt}")
++                self.pos += 2
++                continue
++            if c == '"':
++                self.pos += 1
++                return "".join(out)
++            out.append(c)
++            self.pos += 1
++        raise ValueError("unterminated quote")
++
++    def _op(self):
++        text = self.text
++        for op in ("<=", ">="):
++            if text.startswith(op, self.pos):
++                self.pos += 2
++                return op
++        c = text[self.pos]
++        self.pos += 1
++        return c
++
++    def _bare(self):
++        text = self.text
++        n = len(text)
++        start = self.pos
++        while self.pos < n:
++            c = text[self.pos]
++            if c.isspace() or c in '()"':
++                break
++            if c in "<>=":
++                break
++            self.pos += 1
++        if self.pos == start:
++            raise ValueError(f"unexpected character: {text[self.pos]!r}")
++        return text[start:self.pos]
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        return self.tokens[self.pos]
++
++    def advance(self):
++        tok = self.tokens[self.pos]
++        self.pos += 1
++        return tok
++
++    def parse(self):
++        expr = self.parse_or()
++        if self.peek()[0] != "EOF":
++            raise ValueError(f"unexpected token: {self.peek()[1]!r}")
++        return expr
++
++    def parse_or(self):
++        left = self.parse_and()
++        while self.peek()[0] == "OR":
++            self.advance()
++            right = self.parse_and()
++            left = ("or", left, right)
++        return left
++
++    def parse_and(self):
++        left = self.parse_not()
++        while True:
++            kind = self.peek()[0]
++            if kind == "AND":
++                self.advance()
++                right = self.parse_not()
++                left = ("and", left, right)
++            elif kind in ("WORD", "LPAREN", "NOT"):
++                right = self.parse_not()
++                left = ("and", left, right)
++            else:
++                break
++        return left
++
++    def parse_not(self):
++        if self.peek()[0] == "NOT":
++            self.advance()
++            operand = self.parse_not()
++            return ("not", operand)
++        return self.parse_primary()
++
++    def parse_primary(self):
++        kind, value = self.peek()
++        if kind == "LPAREN":
++            self.advance()
++            if self.peek()[0] == "RPAREN":
++                raise ValueError("empty group")
++            expr = self.parse_or()
++            if self.peek()[0] != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.advance()
++            return expr
++        if kind == "WORD":
++            self.advance()
++            return self._term(value)
++        if kind == "RPAREN":
++            raise ValueError("unbalanced parentheses")
++        if kind == "EOF":
++            raise ValueError("unexpected end of query")
++        if kind in ("AND", "OR"):
++            raise ValueError(f"missing operand before {kind}")
++        raise ValueError(f"unexpected token: {value!r}")
++
++    def _term(self, word):
++        if ":" in word:
++            field_name, value = word.split(":", 1)
++            if field_name in ("category", "tag", "desc"):
++                if value == "":
++                    raise ValueError(f"empty value for {field_name}")
++                return ("field", field_name, value)
++            raise ValueError(f"unknown field: {field_name}")
++        if word in ("amount", "date"):
++            kind, op = self.peek()
++            if kind != "OP":
++                raise ValueError(f"missing operator after {word}")
++            self.advance()
++            vkind, vvalue = self.peek()
++            if vkind != "WORD":
++                raise ValueError(f"missing value for {word}")
++            self.advance()
++            if word == "amount":
++                try:
++                    number = Decimal(vvalue)
++                except InvalidOperation:
++                    raise ValueError(f"invalid number: {vvalue}")
++                if not number.is_finite():
++                    raise ValueError(f"invalid number: {vvalue}")
++                return ("amount", op, number)
++            try:
++                d = date.fromisoformat(vvalue)
++            except ValueError:
++                raise ValueError(f"invalid date: {vvalue}")
++            if len(vvalue) != 10:
++                raise ValueError(f"invalid date: {vvalue}")
++            return ("date", op, d)
++        raise ValueError(f"unknown term: {word}")
++
++
++def compile_query(query):
++    tokens = _Tokenizer(query).tokens
++    if len(tokens) == 1:
++        return lambda tx: True
++    return _Parser(tokens).parse()
++
++
++def _compare(op, left, right):
++    if op == "<":
++        return left < right
++    if op == "<=":
++        return left <= right
++    if op == ">":
++        return left > right
++    if op == ">=":
++        return left >= right
++    return left == right
++
++
++def evaluate(ast, tx):
++    kind = ast[0]
++    if kind == "and":
++        return evaluate(ast[1], tx) and evaluate(ast[2], tx)
++    if kind == "or":
++        return evaluate(ast[1], tx) or evaluate(ast[2], tx)
++    if kind == "not":
++        return not evaluate(ast[1], tx)
++    if kind == "field":
++        _, name, value = ast
++        value = value.lower()
++        if name == "category":
++            return tx.category.lower() == value
++        if name == "tag":
++            return any(t.lower() == value for t in tx.tags)
++        return value in tx.description.lower()
++    if kind == "amount":
++        _, op, number = ast
++        return _compare(op, tx.amount.amount, number)
++    if kind == "date":
++        _, op, d = ast
++        return _compare(op, tx.date, d)
++    raise ValueError(f"bad ast node: {kind}")
++
++
++def search(ledger, query):
++    if query is None or not query.strip():
++        return list(ledger.transactions)
++    ast = compile_query(query)
++    return [tx for tx in ledger.transactions if evaluate(ast, tx)]
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..f52d401 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -29,3 +29,61 @@ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++SEARCH_CSV = """date,description,amount,category,tags
++2026-01-03,Coffee shop,-4.50,food,morning
++2026-01-15,Salary,3000.00,income,
++2026-02-01,Rent,-1200.00,housing,fixed;monthly
++2026-02-05,coffee SHOP,-6.00,food,work
++"""
++
++
++def _search_ledger():
++    return Ledger(parse_csv(SEARCH_CSV))
++
++
++def test_search_empty_matches_all():
++    l = _search_ledger()
++    assert l.search("") == l.transactions
++    assert l.search("   ") == l.transactions
++
++
++def test_search_field_terms_case_insensitive():
++    l = _search_ledger()
++    assert [t.description for t in l.search("category:FOOD")] == ["Coffee shop", "coffee SHOP"]
++    assert [t.description for t in l.search("tag:MORNING")] == ["Coffee shop"]
++    assert [t.description for t in l.search("desc:shop")] == ["Coffee shop", "coffee SHOP"]
++
++
++def test_search_quoted_value():
++    l = _search_ledger()
++    assert [t.description for t in l.search('desc:"Coffee shop"')] == ["Coffee shop", "coffee SHOP"]
++
++
++def test_search_amount_and_date():
++    l = _search_ledger()
++    assert [t.description for t in l.search("amount<-20")] == ["Rent"]
++    assert [t.description for t in l.search("amount >= 3000")] == ["Salary"]
++    assert [t.description for t in l.search("amount=0")] == []
++    assert [t.description for t in l.search("date>=2026-02-01")] == ["Rent", "coffee SHOP"]
++
++
++def test_search_operators_and_precedence():
++    l = _search_ledger()
++    assert [t.description for t in l.search("category:food tag:morning")] == ["Coffee shop"]
++    assert [t.description for t in l.search("category:food AND NOT tag:work")] == ["Coffee shop"]
++    assert [t.description for t in l.search(
++        'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-6')] == ["Coffee shop", "coffee SHOP"]
++
++
++def test_search_errors():
++    l = _search_ledger()
++    for q in ["foo:bar", "(category:food", "category:food AND", "OR tag:x", "NOT", "()",
++              "amount=<3", "date>=2026-13-01", 'desc:"x', "amount<-abc"]:
++        try:
++            l.search(q)
++        except ValueError:
++            pass
++        else:
++            raise AssertionError(f"expected ValueError for {q!r}")

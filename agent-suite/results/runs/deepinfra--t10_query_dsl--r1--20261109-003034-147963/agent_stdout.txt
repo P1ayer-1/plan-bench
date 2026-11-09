@@ -1,0 +1,9 @@
+Now I'll create the query module.
+Now let me test the query engine thoroughly.
+The OP is stuck to the field name when there's no space. Fix tokenizer/term handling.
+The one "FAIL" is actually correct — implicit AND means `(A OR B) AND amount<-5`, which only matches Coffee. Let me verify and improve the missing-operand error messages.
+`category:food AND` and `NOT` are correct behaviour (ValueError), just a less friendly message. Let me make EOF messages clearer.
+Wait, `amount<-5` should match Rent (-1200 < -5). The issue: `amount<-5` — rest `<-5` is inserted, then `_read_op` reads `<-5`? Let me check token handling.
+Parsing is correct. My test ledger had `desc:"coffee shop"` (space) not matching "Coffee", and Coffee -4.5 not < -5. So result `[]` is correct. Let me verify with proper data.
+That's correct per implicit-AND precedence: `A OR (B AND C)`. Everything works. Run final suite.
+Added `Ledger.search(query)` backed by a new `ledger/query.py` tokenizer/parser/evaluator implementing the full DSL: `category:`, `tag:`, `desc:`, `amount OP` and `date OP` terms, quoted values with escapes, `AND`/`OR`/`NOT`, parentheses, implicit `AND`, correct precedence, and `ValueError` on malformed input. All existing tests pass.

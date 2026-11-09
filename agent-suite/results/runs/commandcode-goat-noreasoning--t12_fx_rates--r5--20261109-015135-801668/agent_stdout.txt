@@ -1,0 +1,16 @@
+I'll explore the codebase first.
+I used rounded per-transaction amounts, which violates the spec. Fixing to use unrounded converted amounts.
+Let me verify the spec behaviors with a quick check.
+The GBP→USD chain: base GBP, quote USD — my code only chains when neither is USD. Need to chain whenever a leg exists through USD, including one USD leg cases where direct lookup failed. Let me correct.
+Recursion because when base/quote is USD, it retries itself. Handle USD legs explicitly: for a USD leg, direct/inverse only, no chaining.
+Bug: `usd_leg` for base GBP looks for GBP→USD (none) then USD→GBP (none). Should look up GBP→USD in both directions correctly — GBP has GBP→EUR, not direct to USD. The spec's USD chaining uses `rate(base,"USD")` which itself applies rules 1-3, and cannot chain further. But GBP→EUR exists, not GBP→USD. How to get GBP→USD? Via GBP→EUR→USD? Spec says convert through USD: rate(base,"USD") * rate("USD",quote). For GBP→USD, quote is USD, so it's rate(GBP,USD)*rate(USD,USD). If GBP→USD isn't directly known, rule 4 fails. My test expectation was wrong—the table lacks GBP→USD per rules. Adjust test to add GBP→USD, and test that GBP→EUR inverse works.
+That's rule 4 result GBP→USD × USD→EUR = 1.32 × (1/1.10) = 1.2. My assertion was wrong arithmetic. The implementation is correct. Rerun final checks with corrected assertion.
+Likely Decimal division precision: `Decimal('1.32')/Decimal('1.10')` outside localcontext uses default prec 28, same. Let me see actual.
+GBP→EUR direct? There's no GBP→EUR; inverse EUR→GBP? no. Rule 4: GBP→USD=1.32, USD→EUR=1/1.10=0.909..., product 1.2. But got 1.4520 = 1.32×1.10, meaning right leg used EUR→USD instead of USD→EUR. Fix usd_leg direction.
+Now let me review the final files.
+Rule 4 must look up each leg using rules 1–3 (which includes inverse), not my manual `usd_leg`. But calling `rate(cur,"USD")` recurses back into rule 4 when cur isn't USD. Better: extract a `_direct_rate` helper implementing rules 1–3, and rule 4 calls it for each leg.
+`EUR→GBP`: direct no, inverse GBP→EUR no (GBP→EUR isn't stored), then rule 4: EUR→USD (1.10) × USD→GBP. USD→GBP isn't stored directly, but GBP→USD is → inverse gives 1/1.32. So result 1.10/1.32 = 1/1.2, not 1/(1.32/1.10)=1.10/1.32 — these are equal! Let me check actual.
+Only last-digit rounding difference from double division. That's inherent to different computation paths; the spec says don't round inside rate, with ≥28 sig digits — the returned value is 28 digits either way. Test assertion was too strict. Remaining checks pass. Let me rerun without that exact assertion.
+All working. Final suite passes.
+
+Implemented `ledger/fx.py` with `RateTable`, `convert`, and `Ledger.balance_in`. Rates are exact `Decimal`s (28-digit precision, no floats/rounding); `balance_in` sums unrounded conversions and rounds once. `python -m pytest -q` → 4 passed.

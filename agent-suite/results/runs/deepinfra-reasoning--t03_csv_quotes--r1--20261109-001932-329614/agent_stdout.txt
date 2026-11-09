@@ -1,0 +1,1 @@
+Fixed `ledger/parser.py` to use `csv.reader`, supporting quoted commas, escaped `""`, CRLF, missing tags columns/fields, and line-numbered `ValueError`s. `python -m pytest -q` passes (4 tests).

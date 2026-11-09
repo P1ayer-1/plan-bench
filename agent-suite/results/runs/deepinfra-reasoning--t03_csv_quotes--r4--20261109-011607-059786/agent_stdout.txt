@@ -1,0 +1,3 @@
+Updated `ledger/parser.py` to use Python's CSV reader, supporting quoted commas, escaped doubled quotes, CRLF line endings, optional missing `tags`, and line-numbered `ValueError` for invalid field counts.
+
+`python -m pytest -q`: 4 passed.

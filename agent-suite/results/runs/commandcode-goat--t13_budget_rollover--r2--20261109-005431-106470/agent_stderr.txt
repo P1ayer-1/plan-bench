@@ -1,0 +1,126 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -R . | head -100
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m$ [0mfind . -maxdepth 3 -type f -not -path './.git/*' | sort
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead README.md
+[0m→ [0mRead ledger/cli.py
+[0m
+[0m$ [0mcat opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat/run/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}
+[0m
+[0m← [0mWrite ledger/budget.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/__init__.py
++++ /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .budget import budget_report
+
+[0m
+[0m← [0mEdit ledger/budget.py
+Index: /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/budget.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/budget.py
++++ /suite/results/runs/commandcode-goat--t13_budget_rollover--r2--20261109-005431-106470/ws/ledger/budget.py
+@@ -1,9 +1,9 @@
+ import re
+ 
+ from .money import Money
+ 
+-_MONTH_RE = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
++_MONTH_RE = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])")
+ 
+ 
+ def _parse_month(value):
+     if not isinstance(value, str) or _MONTH_RE.fullmatch(value) is None:
+
+[0m
+[0m$ [0mpython -m pytest -q && python - <<'PY'
+from datetime import date
+from ledger import Ledger, Transaction, Money, budget_report
+
+def tx(y,m,d,a,c='food',cur='USD'):
+    return Transaction(date(y,m,d),'x',Money(a,cur),c)
+
+l=Ledger([tx(2026,1,5,-100), tx(2026,1,10,20), tx(2026,3,1,-10), tx(2025,12,1,-999)])
+r=budget_report(l,{'food':Money(500)},'2026-01','2026-03')
+for m,rows in r.items():
+    print(m, rows['food'])
+r2=budget_report(l,{'food':Money(500)},'2026-01','2026-03',Money(100))
+print(r2['2026-02']['food']['carried_in'], r2['2026-03']['food']['carried_in'])
+try:
+    budget_report(l,{'food':Money(1)},'2026-13','2026-12')
+except ValueError as e: print('err',e)
+try:
+    budget_report(Ledger([tx(2026,1,1,-1,cur='EUR')]),{'food':Money(1)},'2026-01','2026-01')
+except ValueError as e: print('err',e)
+PY
+....                                                                     [100%]
+4 passed in 0.49s
+2026-01 {'budget': Money('500.00', 'USD'), 'carried_in': Money('0.00', 'USD'), 'spent': Money('80.00', 'USD'), 'available': Money('500.00', 'USD'), 'remaining': Money('420.00', 'USD')}
+2026-02 {'budget': Money('500.00', 'USD'), 'carried_in': Money('420.00', 'USD'), 'spent': Money('0.00', 'USD'), 'available': Money('920.00', 'USD'), 'remaining': Money('920.00', 'USD')}
+2026-03 {'budget': Money('500.00', 'USD'), 'carried_in': Money('920.00', 'USD'), 'spent': Money('10.00', 'USD'), 'available': Money('1420.00', 'USD'), 'remaining': Money('1410.00', 'USD')}
+100.00 USD 100.00 USD
+err invalid month: '2026-13'
+err currency mismatch for category 'food' in 2026-01: EUR != USD
+[0m

@@ -1,0 +1,2 @@
+Quick verification of the new command:
+Done. Added `balance` to `ledger/cli.py:18` with `--since/--until/--category`, prints `Balance: <amount> <currency>`, defaults to `0.00 USD`, exits 2 on invalid dates, and `summary` is unchanged. All 4 tests pass.

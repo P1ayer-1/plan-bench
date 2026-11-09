@@ -1,0 +1,120 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..181b282
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,74 @@
++from bisect import bisect_right
++from datetime import date
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++_PRECISION = 28
++
++
++class RateTable:
++    """Historical exchange rates between currencies."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on: date, base: str, quote: str, rate):
++        if isinstance(rate, Decimal):
++            value = rate
++        else:
++            value = Decimal(str(rate))
++        entries = self._rates.setdefault((base, quote), [])
++        dates = [d for d, _ in entries]
++        index = bisect_right(dates, on)
++        if index > 0 and entries[index - 1][0] == on:
++            entries[index - 1] = (on, value)
++        else:
++            entries.insert(index, (on, value))
++
++    def _latest(self, base, quote, on):
++        entries = self._rates.get((base, quote))
++        if not entries:
++            return None
++        dates = [d for d, _ in entries]
++        index = bisect_right(dates, on)
++        if index == 0:
++            return None
++        return entries[index - 1][1]
++
++    def _direct(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        value = self._latest(base, quote, on)
++        if value is not None:
++            return value
++        inverse = self._latest(quote, base, on)
++        if inverse is not None:
++            with localcontext() as ctx:
++                ctx.prec = _PRECISION
++                return Decimal(1) / inverse
++        raise KeyError((base, quote, on))
++
++    def rate(self, base: str, quote: str, on: date) -> Decimal:
++        if base == quote:
++            return Decimal(1)
++        try:
++            return self._direct(base, quote, on)
++        except KeyError:
++            pass
++        try:
++            with localcontext() as ctx:
++                ctx.prec = _PRECISION
++                return self._direct(base, "USD", on) * self._direct("USD", quote, on)
++        except KeyError:
++            raise KeyError((base, quote, on)) from None
++
++
++def _convert_amount(money: Money, to: str, table: RateTable, on: date) -> Decimal:
++    with localcontext() as ctx:
++        ctx.prec = _PRECISION
++        return money.amount * table.rate(money.currency, to, on)
++
++
++def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
++    return Money(_convert_amount(money, to, table, on), to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..8cea4a1 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,5 +1,6 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
+ 
+ 
+@@ -38,6 +39,20 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        """Return the ledger total in currency, converting each transaction at
++        the rate on its own date (or on ``on`` when given). Converted amounts
++        are summed unrounded and rounded once at the end."""
++        from .fx import _PRECISION, _convert_amount
++
++        total = Decimal(0)
++        with localcontext() as ctx:
++            ctx.prec = _PRECISION
++            for tx in self.transactions:
++                when = on if on is not None else tx.date
++                total += _convert_amount(tx.amount, currency, table, when)
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

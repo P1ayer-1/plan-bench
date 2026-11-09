@@ -1,0 +1,5 @@
+I'll explore the codebase first.
+I'll add a balance command using the existing `Ledger.query` and add filtering-aware balance.
+Now let me verify behavior, including invalid dates and edge cases.
+All working. Running the test suite.
+Added the `balance` command in `ledger/cli.py:22`. It filters via `Ledger.query` (inclusive dates), prints `Balance: <amount> <currency>` with two decimals (or `0.00 USD`), and exits 2 with a stderr error on invalid dates. All 4 tests pass.

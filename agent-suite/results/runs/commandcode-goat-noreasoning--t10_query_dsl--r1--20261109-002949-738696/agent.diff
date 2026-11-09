@@ -1,0 +1,335 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..a9f82ea 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -19,6 +19,11 @@ class Ledger:
+     def add(self, tx):
+         self.transactions.append(tx)
+ 
++    def search(self, query):
++        """Return transactions matching a search query, in their original order."""
++        from .search import search as _search
++        return _search(self, query)
++
+     def query(self, category=None, start=None, end=None):
+         """Return transactions matching all given filters (dates inclusive)."""
+         out = []
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..343b00f
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,313 @@
++"""Search language for the ledger.
++
++Grammar (precedence: NOT > implicit AND / AND > OR)::
++
++    expr    := or_expr
++    or_expr := and_expr (OR and_expr)*
++    and_expr:= unary (AND? unary)*
++    unary   := NOT unary | primary
++    primary := '(' expr ')' | term
++"""
++
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++FIELDS = ("category", "tag", "desc")
++CMP_FIELDS = ("amount", "date")
++
++_OPS = ("<=", ">=", "<", ">", "=")
++
++_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
++_NUMBER_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)$")
++
++
++class _Token:
++    __slots__ = ("kind", "value")
++
++    def __init__(self, kind, value):
++        self.kind = kind
++        self.value = value
++
++    def __repr__(self):
++        return f"_Token({self.kind!r}, {self.value!r})"
++
++
++def _tokenize(text):
++    tokens = []
++    i = 0
++    n = len(text)
++    while i < n:
++        c = text[i]
++        if c.isspace():
++            i += 1
++            continue
++        if c == "(":
++            tokens.append(_Token("LPAREN", c))
++            i += 1
++            continue
++        if c == ")":
++            tokens.append(_Token("RPAREN", c))
++            i += 1
++            continue
++        if c == '"':
++            i += 1
++            buf = []
++            closed = False
++            while i < n:
++                ch = text[i]
++                if ch == "\\":
++                    if i + 1 >= n:
++                        raise ValueError("dangling escape in quoted string")
++                    nxt = text[i + 1]
++                    if nxt not in ('"', "\\"):
++                        raise ValueError(f"invalid escape \\{nxt}")
++                    buf.append(nxt)
++                    i += 2
++                    continue
++                if ch == '"':
++                    closed = True
++                    i += 1
++                    break
++                buf.append(ch)
++                i += 1
++            if not closed:
++                raise ValueError("unterminated quote")
++            tokens.append(_Token("STRING", "".join(buf)))
++            continue
++        if c in _OPS:
++            op = c
++            if i + 1 < n and text[i:i + 2] in _OPS:
++                op = text[i:i + 2]
++            tokens.append(_Token("OP", op))
++            i += len(op)
++            continue
++        start = i
++        while i < n and not text[i].isspace() and text[i] not in '()"':
++            i += 1
++        word = text[start:i]
++        if not word:
++            raise ValueError(f"unexpected character {text[start]!r}")
++        tokens.append(_Token("WORD", word))
++    return tokens
++
++
++_OP_SPLIT_RE = re.compile(r"^(<=|>=|<|>|=)")
++
++
++def _split_field(word):
++    """Split a bare word into (field, remainder) or None.
++
++    Handles both ``field:value`` (category/tag/desc) and ``field OP value``
++    where the operator follows the field name directly (amount/date).
++    """
++    if ":" in word:
++        field, rest = word.split(":", 1)
++        return field, rest
++    for field in CMP_FIELDS:
++        if word.startswith(field):
++            rest = word[len(field):]
++            m = _OP_SPLIT_RE.match(rest)
++            if m:
++                return field, rest
++    return None
++
++
++def _read_value(tokens, pos):
++    """Read a VALUE starting at ``pos``: a bare word or a quoted string."""
++    tok = tokens[pos]
++    if tok.kind == "STRING":
++        return tok.value, pos + 1
++    if tok.kind != "WORD":
++        raise ValueError("missing value")
++    return tok.value, pos + 1
++
++
++def _read_cmp_operand(tokens, pos):
++    """Read an operand that may directly follow the op in the same word."""
++    if pos >= len(tokens):
++        raise ValueError("missing value")
++    tok = tokens[pos]
++    if tok.kind in ("LPAREN", "RPAREN"):
++        raise ValueError("missing value")
++    if tok.kind == "STRING":
++        return tok.value, pos + 1
++    value = tok.value
++    pos += 1
++    if value in ("+", "-") and pos < len(tokens) and tokens[pos].kind == "WORD":
++        value += tokens[pos].value
++        pos += 1
++    return value, pos
++
++
++def _parse_field(word, tokens, pos, rest):
++    field = word
++    value = rest
++    if field in FIELDS:
++        if value == "":
++            value, pos = _read_value(tokens, pos)
++        return ("field", field, value), pos
++    if field in CMP_FIELDS:
++        m = re.match(r"^(<=|>=|<|>|=)(.*)$", value, re.DOTALL)
++        if not m:
++            raise ValueError(f"missing or bad operator in {field!r} term")
++        op, raw = m.group(1), m.group(2)
++        raw = raw.strip()
++        if raw == "":
++            raw, pos = _read_cmp_operand(tokens, pos)
++        if field == "amount":
++            if not _NUMBER_RE.match(raw):
++                raise ValueError(f"invalid number {raw!r}")
++            try:
++                num = Decimal(raw)
++            except InvalidOperation:
++                raise ValueError(f"invalid number {raw!r}")
++            return ("amount", op, num), pos
++        if not _DATE_RE.match(raw):
++            raise ValueError(f"invalid date {raw!r}")
++        try:
++            d = date.fromisoformat(raw)
++        except ValueError:
++            raise ValueError(f"invalid date {raw!r}")
++        return ("date", op, d), pos
++    raise ValueError(f"unknown field {field!r}")
++
++
++_CMP = {
++    "<": lambda a, b: a < b,
++    "<=": lambda a, b: a <= b,
++    ">": lambda a, b: a > b,
++    ">=": lambda a, b: a >= b,
++    "=": lambda a, b: a == b,
++}
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
++
++    def peek_at(self, offset):
++        idx = self.pos + offset
++        return self.tokens[idx] if idx < len(self.tokens) else None
++
++    def advance(self):
++        tok = self.tokens[self.pos]
++        self.pos += 1
++        return tok
++
++    def is_keyword(self, tok, word):
++        return tok is not None and tok.kind == "WORD" and tok.value.upper() == word
++
++    def parse(self):
++        if not self.tokens:
++            return ("true",)
++        node = self.parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError("unexpected token")
++        return node
++
++    def parse_or(self):
++        node = self.parse_and()
++        while self.is_keyword(self.peek(), "OR"):
++            self.advance()
++            node = ("or", node, self.parse_and())
++        return node
++
++    def parse_and(self):
++        node = self.parse_unary()
++        while True:
++            tok = self.peek()
++            if tok is None or tok.kind == "RPAREN" or self.is_keyword(tok, "OR"):
++                return node
++            if self.is_keyword(tok, "AND"):
++                self.advance()
++                node = ("and", node, self.parse_unary())
++                continue
++            # implicit AND
++            node = ("and", node, self.parse_unary())
++
++    def parse_unary(self):
++        tok = self.peek()
++        if self.is_keyword(tok, "NOT"):
++            self.advance()
++            return ("not", self.parse_unary())
++        return self.parse_primary()
++
++    def parse_primary(self):
++        tok = self.peek()
++        if tok is None or tok.kind == "RPAREN" or self.is_keyword(tok, "AND") \
++                or self.is_keyword(tok, "OR"):
++            raise ValueError("missing operand")
++        if tok.kind == "LPAREN":
++            self.advance()
++            if self.peek() is not None and self.peek().kind == "RPAREN":
++                raise ValueError("empty group")
++            node = self.parse_or()
++            if self.peek() is None or self.peek().kind != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.advance()
++            return node
++        if tok.kind == "OP":
++            raise ValueError(f"unexpected operator {tok.value!r}")
++        if tok.kind == "STRING":
++            raise ValueError(f"unexpected string {tok.value!r}")
++        word = tok.value
++        if word.upper() in ("AND", "OR", "NOT"):
++            raise ValueError(f"unexpected keyword {word!r}")
++        split = _split_field(word)
++        if split is None:
++            nxt = self.peek_at(1)
++            if word in CMP_FIELDS and nxt is not None and nxt.kind == "OP":
++                self.pos += 2
++                node, self.pos = _parse_field(word, self.tokens, self.pos, nxt.value)
++                return node
++            raise ValueError(f"invalid term {word!r}")
++        self.pos += 1
++        node, self.pos = _parse_field(split[0], self.tokens, self.pos, split[1])
++        return node
++
++
++def _match(node, tx):
++    kind = node[0]
++    if kind == "true":
++        return True
++    if kind == "and":
++        return _match(node[1], tx) and _match(node[2], tx)
++    if kind == "or":
++        return _match(node[1], tx) or _match(node[2], tx)
++    if kind == "not":
++        return not _match(node[1], tx)
++    if kind == "field":
++        _, field, value = node
++        value = value.lower()
++        if field == "category":
++            return tx.category.lower() == value
++        if field == "tag":
++            return any(t.lower() == value for t in tx.tags)
++        if field == "desc":
++            return value in tx.description.lower()
++        raise ValueError(f"unknown field {field!r}")
++    if kind == "amount":
++        _, op, num = node
++        return _CMP[op](tx.amount.amount, num)
++    if kind == "date":
++        _, op, d = node
++        return _CMP[op](tx.date, d)
++    raise ValueError(f"bad node {node!r}")
++
++
++def parse_query(query):
++    """Parse a search query into an evaluable AST (raising ValueError if malformed)."""
++    if not isinstance(query, str):
++        raise ValueError("query must be a string")
++    return _Parser(_tokenize(query)).parse()
++
++
++def search(ledger, query):
++    """Return transactions matching ``query`` in their original order."""
++    ast = parse_query(query)
++    return [tx for tx in ledger.transactions if _match(ast, tx)]

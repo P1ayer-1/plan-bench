@@ -1,0 +1,1 @@
+Implemented `balance` in `ledger/cli.py:20`. It supports `--since`, `--until` (inclusive), and `--category`, prints `Balance: <amount> <currency>`, defaults to `0.00 USD`, and exits 2 on invalid dates. Summary still works; all 4 tests pass.

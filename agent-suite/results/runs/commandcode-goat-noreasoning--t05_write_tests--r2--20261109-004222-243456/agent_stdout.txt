@@ -1,0 +1,1 @@
+Added `tests/test_report.py` with 25 tests covering month grouping, zero-padded sorting, net sign handling, cross-month isolation, `n` limits, tie behavior, and non-mutation. All tests pass.

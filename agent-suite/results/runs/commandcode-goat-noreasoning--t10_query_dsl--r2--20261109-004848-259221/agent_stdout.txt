@@ -1,0 +1,7 @@
+I'll implement the query language in a new module and wire it into `Ledger`.
+The quoted string after a colon is tokenized separately. I need to join a `WORD:` with a following quoted WORD.
+Also need to handle quoted value after `amount OP` — that's just a WORD so fine. Rerun.
+All correct. Now consider edge cases: `desc:` with quoted handling is fixed. But bare word can't contain quotes per spec, and `:` with quoted value where no quote-token prefix ends with `:`—handled. Let me check `NOT` after implicit AND and `amount< -20`.
+Everything works. Let me add tests for the new feature.
+My test expectations were wrong (Coffee shop > -20). Fix tests.
+All 10 tests pass. Implemented `Ledger.search` in `ledger/ledger.py:36` backed by the parser/evaluator in `ledger/search.py`.

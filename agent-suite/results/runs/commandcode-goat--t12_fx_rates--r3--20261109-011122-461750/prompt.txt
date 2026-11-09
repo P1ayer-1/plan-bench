@@ -1,0 +1,33 @@
+Add currency conversion with historical exchange rates, in a new module `ledger/fx.py`.
+
+## `RateTable`
+
+- `RateTable()` creates an empty table.
+- `add(on: date, base: str, quote: str, rate)`: from date `on` onward, 1 unit of `base` = `rate` units of
+  `quote`. `rate` may be a `str`, `int` or `Decimal`; store it as an exact `Decimal` (never go through
+  `float`). A later `add` for the same pair and an earlier-or-equal date takes effect from its own date.
+  Adding the same pair and date twice replaces the earlier rate.
+- `rate(base, quote, on: date) -> Decimal`: the exchange rate in effect on date `on`:
+  1. If `base == quote`, it's `Decimal(1)`.
+  2. Otherwise use the most recent `base→quote` rate dated on or before `on`.
+  3. If there's none, use `1 / r` where r is the most recent `quote→base` rate dated on or before `on`.
+  4. If there's neither, convert through USD: `rate(base, "USD", on) * rate("USD", quote, on)`, each leg
+     looked up with rules 1–3 (no further chaining).
+  5. If nothing works, raise `KeyError`.
+
+  Rates are exact `Decimal`s. Never round a rate, or a product of rates, inside `rate()`; do the arithmetic
+  with at least 28 significant digits.
+
+## Conversion
+
+- `convert(money: Money, to: str, table: RateTable, on: date) -> Money`: multiply at full precision, then
+  round **once** to the cent (half-up, as `Money` already does).
+- `Ledger.balance_in(currency: str, table: RateTable, on: date | None = None) -> Money`: the ledger's total
+  in `currency`. Convert each transaction at the rate on its own date, or on `on` for every transaction if
+  `on` is given. Add up the **unrounded** converted amounts and round once at the end (do not round each
+  transaction separately). An empty ledger gives `Money.zero(currency)`. Any missing rate raises `KeyError`.
+
+Keep the existing behaviour and tests working.
+
+
+Work only in the current directory. Run the test suite with `python -m pytest -q` before you finish. Do not ask questions; make reasonable decisions and complete the task.

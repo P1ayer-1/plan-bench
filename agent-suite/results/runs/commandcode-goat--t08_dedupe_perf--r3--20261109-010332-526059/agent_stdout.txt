@@ -1,0 +1,3 @@
+Replaced the O(n²) membership scan with a `set` of keys in `ledger/ledger.py:41`. Duplicate semantics, first-occurrence order, and `self` return are unchanged.
+
+`python -m pytest -q`: 4 passed. Benchmark: 200,000 transactions deduped in ~0.35s.

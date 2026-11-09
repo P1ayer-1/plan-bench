@@ -1,0 +1,3 @@
+Updated `ledger/parser.py` to use Python's `csv` module, supporting quoted commas, escaped `""` quotes, Windows line endings, and omitted `tags`. Malformed rows now raise `ValueError` with the 1-based line number.
+
+`python -m pytest -q` → 4 passed.

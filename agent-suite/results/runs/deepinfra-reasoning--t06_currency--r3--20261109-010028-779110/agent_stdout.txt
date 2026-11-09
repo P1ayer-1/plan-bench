@@ -1,0 +1,8 @@
+Implemented multi-currency safety:
+
+- Added `CurrencyMismatch(ValueError)` in `ledger/money.py`; `+`, `-`, and `<` now validate currencies.
+- `Ledger.balance()` returns `{currency: Money}` (`{}` when empty).
+- `monthly_summary()` uses `(category, currency)` keys only for mixed-currency months.
+- Updated CLI formatting, exports, and tests.
+
+`python -m pytest -q` → **7 passed**.

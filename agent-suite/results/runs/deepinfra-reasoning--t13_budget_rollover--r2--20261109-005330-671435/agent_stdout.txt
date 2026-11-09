@@ -1,0 +1,3 @@
+Implemented `ledger/budget.py` with month validation, per-category spending, rollover caps, and currency checks. Exported `budget_report` from `ledger/__init__.py`.
+
+`python -m pytest -q` passes (4 tests).

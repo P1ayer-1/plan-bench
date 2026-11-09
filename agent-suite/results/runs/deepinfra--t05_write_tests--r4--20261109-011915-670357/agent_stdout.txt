@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 33 tests; all pass. Covers month grouping/padding/sorting, same-month category sums, cross-year separation, sign handling, currency, non-mutation, and for `largest_expenses`: filtering out non-expenses, most-negative-first ordering, default `n=3`, `n` boundaries, ties, and decimal-aware ordering.

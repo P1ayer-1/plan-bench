@@ -1,0 +1,72 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && find . -maxdepth 2 -type f -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:34 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:34 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 646 Nov  9 01:34 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m$ [0mgrep -rn "query\|tags" ledger/
+ledger/ledger.py:12:    tags: tuple = field(default_factory=tuple)
+ledger/ledger.py:22:    def query(self, category=None, start=None, end=None):
+ledger/parser.py:5:HEADER = ["date", "description", "amount", "category", "tags"]
+ledger/parser.py:9:    """Parse CSV text with header date,description,amount,category,tags.
+ledger/parser.py:10:    tags are separated by ';'. Returns a list of Transaction."""
+ledger/parser.py:19:        d, desc, amt, cat, tags = line.split(",")
+ledger/parser.py:25:            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t01_tags--r5--20261109-013433-971615/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t01_tags--r5--20261109-013433-971615/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t01_tags--r5--20261109-013433-971615/ws/ledger/ledger.py
+@@ -18,9 +18,9 @@
+ 
+ def add(self, tx):
+     self.transactions.append(tx)
+ 
+-def query(self, category=None, start=None, end=None):
++def query(self, category=None, start=None, end=None, tag=None):
+     """Return transactions matching all given filters (dates inclusive)."""
+     out = []
+     for tx in self.transactions:
+         if category is not None and tx.category != category:
+@@ -28,11 +28,17 @@
+         if start is not None and tx.date < start:
+             continue
+         if end is not None and tx.date > end:
+             continue
++        if tag is not None and tag not in tx.tags:
++            continue
+         out.append(tx)
+     return out
+ 
++def tags(self):
++    """Return a sorted list of every distinct tag used in the ledger."""
++    return sorted({tag for tx in self.transactions for tag in tx.tags})
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 3.47s
+[0m

@@ -1,0 +1,3 @@
+I'll explore the codebase structure first.
+Now add `add_recurring` to Ledger, keeping imports cycle-free.
+All tests pass. Implemented `ledger/recurring.py` with `Recurrence`, `occurrences`, `expand`, and `Ledger.add_recurring` (lazy import avoids a circular dependency).

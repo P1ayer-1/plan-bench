@@ -1,0 +1,58 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && grep -rn "dedupe" --include=*.py . | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:46 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:46 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 659 Nov  9 00:46 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/ledger.py:41:    def dedupe(self):
+[0m
+[0m$ [0mls tests && cat README.md
+test_basic.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r2--20261109-004623-800605/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r2--20261109-004623-800605/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r2--20261109-004623-800605/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+import time,datetime
+from ledger.ledger import Ledger,Transaction
+from ledger.money import Money
+txs=[Transaction(datetime.date(2020,1,1),f'desc {i%1000}',Money(i%100),'c') for i in range(200000)]
+l=Ledger(txs);t=time.time();l.dedupe();print(time.time()-t,len(l.transactions))"
+....                                                                     [100%]
+4 passed in 2.23s
+0.1934361457824707 1000
+[0m

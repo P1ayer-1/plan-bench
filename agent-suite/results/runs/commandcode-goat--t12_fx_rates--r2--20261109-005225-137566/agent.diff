@@ -1,0 +1,97 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..a42075b
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,56 @@
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++PREC = 28
++
++
++class RateTable:
++    """Historical exchange rates, exact to a Decimal."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        value = rate if isinstance(rate, Decimal) else Decimal(str(rate))
++        self._rates.setdefault((base, quote), {})[on] = value
++
++    def _most_recent(self, base, quote, on):
++        entries = self._rates.get((base, quote))
++        if not entries:
++            return None
++        dates = [d for d in entries if d <= on]
++        if not dates:
++            return None
++        return entries[max(dates)]
++
++    def _lookup(self, base, quote, on):
++        """Apply rules 1-3 only (no USD chaining)."""
++        if base == quote:
++            return Decimal(1)
++        rate = self._most_recent(base, quote, on)
++        if rate is not None:
++            return rate
++        inverse = self._most_recent(quote, base, on)
++        if inverse is not None:
++            return Decimal(1) / inverse
++        return None
++
++    def rate(self, base, quote, on):
++        with localcontext() as ctx:
++            ctx.prec = PREC
++            direct = self._lookup(base, quote, on)
++            if direct is not None:
++                return direct
++            left = self._lookup(base, "USD", on)
++            right = self._lookup("USD", quote, on)
++            if left is not None and right is not None:
++                return left * right
++        raise KeyError((base, quote, on))
++
++
++def convert(money, to, table, on):
++    with localcontext() as ctx:
++        ctx.prec = PREC
++        amount = money.amount * table.rate(money.currency, to, on)
++    return Money(amount, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..3fed518 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,5 +1,6 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
+ 
+ 
+@@ -38,6 +39,15 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        with localcontext() as ctx:
++            ctx.prec = 28
++            total = Decimal(0)
++            for tx in self.transactions:
++                when = on if on is not None else tx.date
++                total += tx.amount.amount * table.rate(tx.amount.currency, currency, when)
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

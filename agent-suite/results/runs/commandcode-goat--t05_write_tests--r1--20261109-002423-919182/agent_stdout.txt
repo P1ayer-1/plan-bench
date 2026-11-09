@@ -1,0 +1,3 @@
+Created `tests/test_report.py` with 40 tests covering month grouping/formatting, chronological ordering, category summation, sign/currency handling, expense filtering, sorting, tie stability, `n` bounds, and non-mutation.
+
+`python -m pytest -q` → **40 passed**.

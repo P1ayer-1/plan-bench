@@ -1,0 +1,1 @@
+Fixed `Money.split` in `ledger/money.py:40` to distribute cents remainder-first with sign handling. All 4 tests pass.

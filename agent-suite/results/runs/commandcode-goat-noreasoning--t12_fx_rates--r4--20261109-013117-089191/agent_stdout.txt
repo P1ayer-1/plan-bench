@@ -1,0 +1,2 @@
+Now add balance_in to Ledger.
+All 4 existing tests pass and the new functionality works correctly.

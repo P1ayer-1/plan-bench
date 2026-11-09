@@ -1,0 +1,2 @@
+My fixture has 5 expenses (Coffee, Groceries, Rent, Dinner, Gift), not 4. Fixing those expectations.
+Done. Added `tests/test_report.py` with 32 tests (all passing) covering month grouping/sorting/padding, per-category sums, sign handling, transaction filtering, sorting order, `n` limits, and non-mutation.

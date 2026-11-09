@@ -1,0 +1,7 @@
+Now update tests and add coverage.
+All 8 tests pass.
+
+- `CurrencyMismatch(ValueError)` in `ledger/money.py`, raised by add/sub/lt for differing currencies.
+- `Ledger.balance()` returns `{currency: Money}` (`{}` for empty).
+- `monthly_summary` uses `(category, currency)` keys only for months with multiple currencies.
+- CLI summary handles tuple keys; added `balance` subcommand. `CurrencyMismatch` exported from `ledger`.

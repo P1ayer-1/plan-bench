@@ -1,0 +1,130 @@
+diff --git a/ledger/budget.py b/ledger/budget.py
+new file mode 100644
+index 0000000..f6e6a38
+--- /dev/null
++++ b/ledger/budget.py
+@@ -0,0 +1,73 @@
++import re
++
++from .money import Money
++
++_MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
++
++
++def _parse_month(value):
++    if not isinstance(value, str) or not _MONTH_RE.match(value):
++        raise ValueError(f"invalid month: {value!r}")
++    year, month = value.split("-")
++    return int(year), int(month)
++
++
++def _month_range(start, end):
++    start_year, start_mon = _parse_month(start)
++    end_year, end_mon = _parse_month(end)
++    if (start_year, start_mon) > (end_year, end_mon):
++        raise ValueError("start_month must not be after end_month")
++    months = []
++    year, mon = start_year, start_mon
++    while (year, mon) <= (end_year, end_mon):
++        months.append(f"{year:04d}-{mon:02d}")
++        mon += 1
++        if mon > 12:
++            mon = 1
++            year += 1
++    return months
++
++
++def budget_report(ledger, budgets, start_month, end_month, rollover_cap=None):
++    months = _month_range(start_month, end_month)
++    month_set = set(months)
++
++    spending = {}
++    for tx in ledger.transactions:
++        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
++        if m not in month_set:
++            continue
++        if tx.category not in budgets:
++            continue
++        budget = budgets[tx.category]
++        if tx.amount.currency != budget.currency:
++            raise ValueError(
++                f"currency mismatch for category {tx.category}: "
++                f"{tx.amount.currency} != {budget.currency}"
++            )
++        spending[(m, tx.category)] = spending.get((m, tx.category), Money.zero(budget.currency)) + tx.amount
++
++    result = {}
++    carried = {}
++    for m in months:
++        rows = {}
++        for category, budget in budgets.items():
++            currency = budget.currency
++            carried_in = carried.get(category, Money.zero(currency))
++            net = spending.get((m, category), Money.zero(currency))
++            spent = -net
++            available = budget + carried_in
++            remaining = available - spent
++            rows[category] = {
++                "budget": budget,
++                "carried_in": carried_in,
++                "spent": spent,
++                "available": available,
++                "remaining": remaining,
++            }
++            carry = remaining if remaining.amount > 0 else Money.zero(currency)
++            if rollover_cap is not None and carry.amount > rollover_cap.amount:
++                carry = rollover_cap
++            carried[category] = carry
++        result[m] = rows
++    return result
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..4694808 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -29,3 +29,46 @@ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++from ledger.budget import budget_report
++from ledger import Transaction
++from datetime import date as _date
++
++
++def test_budget_report_carry_and_cap():
++    def tx(d, amt, cat="food", cur="USD"):
++        return Transaction(_date.fromisoformat(d), "", Money(amt, cur), cat)
++
++    l = Ledger([
++        tx("2026-01-05", "-80"),
++        tx("2026-02-05", "-150"),
++        tx("2026-03-05", "20"),
++        tx("2025-12-31", "-999"),
++    ])
++    r = budget_report(l, {"food": Money("100")}, "2026-01", "2026-03")
++    assert list(r) == ["2026-01", "2026-02", "2026-03"]
++    jan = r["2026-01"]["food"]
++    assert jan["carried_in"] == Money("0")
++    assert jan["spent"] == Money("80")
++    assert jan["remaining"] == Money("20")
++    assert r["2026-02"]["food"]["carried_in"] == Money("20")
++    assert r["2026-02"]["food"]["remaining"] == Money("-30")
++    assert r["2026-03"]["food"]["carried_in"] == Money("0")
++    assert r["2026-03"]["food"]["spent"] == Money("-20")
++    capped = budget_report(l, {"food": Money("100")}, "2026-01", "2026-03",
++                           rollover_cap=Money("10"))
++    assert capped["2026-02"]["food"]["carried_in"] == Money("10")
++
++
++def test_budget_report_errors():
++    import pytest
++    l = Ledger()
++    for bad in ["2026-13", "2026-1", "20261-01", "x"]:
++        with pytest.raises(ValueError):
++            budget_report(l, {}, bad, "2026-02")
++    with pytest.raises(ValueError):
++        budget_report(l, {}, "2026-03", "2026-02")
++    with pytest.raises(ValueError):
++        budget_report(Ledger([Transaction(_date(2026, 1, 1), "", Money("1", "EUR"), "food")]),
++                      {"food": Money("1")}, "2026-01", "2026-01")

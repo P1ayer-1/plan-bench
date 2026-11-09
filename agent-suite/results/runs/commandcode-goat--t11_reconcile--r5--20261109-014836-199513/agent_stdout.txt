@@ -1,0 +1,3 @@
+Implemented `ledger/reconcile.py` with maximum-cardinality, minimum-total-date-distance matching via per-amount min-cost max-flow. Added tests covering matching, ordering, duplicates, currency, date windows, and empty inputs.
+
+`python -m pytest -q`: 9 passed.

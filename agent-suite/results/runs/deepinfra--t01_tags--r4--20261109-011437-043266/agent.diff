@@ -1,0 +1,32 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..49ad06e 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -19,7 +19,7 @@ class Ledger:
+     def add(self, tx):
+         self.transactions.append(tx)
+ 
+-    def query(self, category=None, start=None, end=None):
++    def query(self, category=None, start=None, end=None, tag=None):
+         """Return transactions matching all given filters (dates inclusive)."""
+         out = []
+         for tx in self.transactions:
+@@ -29,9 +29,18 @@ class Ledger:
+                 continue
+             if end is not None and tx.date > end:
+                 continue
++            if tag is not None and tag not in tx.tags:
++                continue
+             out.append(tx)
+         return out
+ 
++    def tags(self):
++        """Return a sorted list of every distinct tag used in the ledger."""
++        found = set()
++        for tx in self.transactions:
++            found.update(tx.tags)
++        return sorted(found)
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:

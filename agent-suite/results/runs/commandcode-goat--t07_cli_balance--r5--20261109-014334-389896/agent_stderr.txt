@@ -1,0 +1,86 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m→ [0mRead ledger/cli.py
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | head -50 && echo '---' && ls
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+---
+README.md
+ledger
+opencode.json
+tests
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead README.md
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/commandcode-goat--t07_cli_balance--r5--20261109-014334-389896/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t07_cli_balance--r5--20261109-014334-389896/ws/ledger/cli.py
++++ /suite/results/runs/commandcode-goat--t07_cli_balance--r5--20261109-014334-389896/ws/ledger/cli.py
+@@ -1,6 +1,8 @@
+ import argparse, sys
++from datetime import date
+ from .ledger import Ledger
++from .money import Money
+ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
+@@ -8,8 +10,13 @@
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++    b = sub.add_parser("balance", help="total for matching transactions")
++    b.add_argument("file")
++    b.add_argument("--since", type=date.fromisoformat)
++    b.add_argument("--until", type=date.fromisoformat)
++    b.add_argument("--category")
+     args = ap.parse_args(argv)
+ 
+     with open(args.file) as f:
+         ledger = Ledger(parse_csv(f.read()))
+@@ -17,8 +24,15 @@
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+                 print(f"  {cat}: {total}")
++    elif args.cmd == "balance":
++        total = Money.zero()
++        for tx in ledger.query(
++            category=args.category, start=args.since, end=args.until
++        ):
++            total = total + tx.amount
++        print(f"Balance: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m$ [0mpython -m pytest -q && printf 'date,description,amount,category,tags\n2026-01-03,Coffee,-4.50,food,morning\n2026-01-15,Salary,3000.00,income,\n2026-02-01,Rent,-1200.00,housing,fixed;monthly\n' > /tmp/t.csv && python -m ledger.cli balance /tmp/t.csv --since 2026-01-10 --until 2026-02-01 && python -m ledger.cli balance /tmp/t.csv --category food && python -m ledger.cli balance /tmp/t.csv --category nope; python -m ledger.cli balance /tmp/t.csv --since bad; echo "exit=$?"
+....                                                                     [100%]
+4 passed in 0.43s
+Balance: 1800.00 USD
+Balance: -4.50 USD
+Balance: 0.00 USD
+usage: ledger balance [-h] [--since SINCE] [--until UNTIL]
+                      [--category CATEGORY]
+                      file
+ledger balance: error: argument --since: invalid fromisoformat value: 'bad'
+exit=2
+[0m

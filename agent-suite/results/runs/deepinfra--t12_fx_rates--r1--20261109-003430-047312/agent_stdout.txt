@@ -1,0 +1,1 @@
+Added `ledger/fx.py` with `RateTable`, `convert`, and `Ledger.balance_in` (monkey-patched onto `Ledger`, so `ledger/ledger.py` stays untouched). All 4 existing tests pass.

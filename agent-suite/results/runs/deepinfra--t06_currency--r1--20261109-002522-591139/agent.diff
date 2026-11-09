@@ -1,0 +1,217 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..452175f 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,2 @@
+-from .money import Money
++from .money import Money, CurrencyMismatch
+ from .ledger import Ledger, Transaction
+diff --git a/ledger/cli.py b/ledger/cli.py
+index dde6829..8dbe366 100644
+--- a/ledger/cli.py
++++ b/ledger/cli.py
+@@ -4,11 +4,20 @@ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
++def _format_category(key):
++    if isinstance(key, tuple):
++        category, currency = key
++        return f"{category} [{currency}]"
++    return str(key)
++
++
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++    b = sub.add_parser("balance", help="total balance per currency")
++    b.add_argument("file")
+     args = ap.parse_args(argv)
+ 
+     with open(args.file) as f:
+@@ -16,8 +25,11 @@ def main(argv=None):
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+-            for cat, total in sorted(cats.items()):
+-                print(f"  {cat}: {total}")
++            for cat, total in sorted(cats.items(), key=lambda kv: str(kv[0])):
++                print(f"  {_format_category(cat)}: {total}")
++    elif args.cmd == "balance":
++        for currency, total in sorted(ledger.balance().items()):
++            print(f"{currency}: {total.amount}")
+     return 0
+ 
+ 
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..2013f6c 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -33,10 +33,13 @@ class Ledger:
+         return out
+ 
+     def balance(self):
+-        total = Money.zero()
++        totals = {}
+         for tx in self.transactions:
+-            total = total + tx.amount
+-        return total
++            currency = tx.amount.currency
++            if currency not in totals:
++                totals[currency] = Money.zero(currency)
++            totals[currency] = totals[currency] + tx.amount
++        return totals
+ 
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+diff --git a/ledger/money.py b/ledger/money.py
+index c17d860..e856f67 100644
+--- a/ledger/money.py
++++ b/ledger/money.py
+@@ -3,6 +3,17 @@ from decimal import Decimal, ROUND_HALF_UP
+ CENT = Decimal("0.01")
+ 
+ 
++class CurrencyMismatch(ValueError):
++    """Raised when operating on Money values with different currencies."""
++
++
++def _check_same_currency(a, b):
++    if a.currency != b.currency:
++        raise CurrencyMismatch(
++            f"currency mismatch: {a.currency!r} vs {b.currency!r}"
++        )
++
++
+ class Money:
+     """An amount of money in a single currency, stored to the cent."""
+ 
+@@ -11,9 +22,15 @@ class Money:
+         self.currency = currency
+ 
+     def __add__(self, other):
++        if not isinstance(other, Money):
++            return NotImplemented
++        _check_same_currency(self, other)
+         return Money(self.amount + other.amount, self.currency)
+ 
+     def __sub__(self, other):
++        if not isinstance(other, Money):
++            return NotImplemented
++        _check_same_currency(self, other)
+         return Money(self.amount - other.amount, self.currency)
+ 
+     def __mul__(self, factor):
+@@ -29,6 +46,9 @@ class Money:
+         return hash((self.amount, self.currency))
+ 
+     def __lt__(self, other):
++        if not isinstance(other, Money):
++            return NotImplemented
++        _check_same_currency(self, other)
+         return self.amount < other.amount
+ 
+     def __repr__(self):
+diff --git a/ledger/report.py b/ledger/report.py
+index 0f3c778..773ae8a 100644
+--- a/ledger/report.py
++++ b/ledger/report.py
+@@ -2,15 +2,29 @@ from .money import Money
+ 
+ 
+ def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+-    result = {}
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month.
++
++    When a month contains transactions in more than one currency, the inner
++    keys become ``(category, currency)`` tuples so that each currency is
++    reported separately. Months with a single currency keep plain category
++    keys.
++    """
++    by_month = {}
+     for tx in ledger.transactions:
+         m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++        by_month.setdefault(m, []).append(tx)
++
++    result = {}
++    for month, transactions in by_month.items():
++        currencies = {tx.amount.currency for tx in transactions}
++        mixed = len(currencies) > 1
++        cats = {}
++        for tx in transactions:
++            key = (tx.category, tx.amount.currency) if mixed else tx.category
++            if key not in cats:
++                cats[key] = Money.zero(tx.amount.currency)
++            cats[key] = cats[key] + tx.amount
++        result[month] = cats
+     return dict(sorted(result.items()))
+ 
+ 
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..b0948a4 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -1,5 +1,5 @@
+ from datetime import date
+-from ledger import Money, Ledger, Transaction
++from ledger import Money, Ledger, Transaction, CurrencyMismatch
+ from ledger.parser import parse_csv
+ from ledger.report import monthly_summary
+ 
+@@ -17,7 +17,47 @@ def test_money_add():
+ def test_parse_and_balance():
+     l = Ledger(parse_csv(CSV))
+     assert len(l.transactions) == 3
+-    assert l.balance() == Money("1795.50")
++    assert l.balance() == {"USD": Money("1795.50")}
++
++
++def test_balance_empty():
++    assert Ledger().balance() == {}
++
++
++def test_currency_mismatch():
++    import pytest
++
++    a = Money("1.00", "USD")
++    b = Money("1.00", "EUR")
++    with pytest.raises(CurrencyMismatch):
++        a + b
++    with pytest.raises(CurrencyMismatch):
++        a - b
++    with pytest.raises(CurrencyMismatch):
++        a < b
++
++
++def test_currency_mismatch_is_valueerror():
++    assert issubclass(CurrencyMismatch, ValueError)
++
++
++def test_summary_mixed_currency():
++    txs = [
++        Transaction(date(2026, 1, 1), "a", Money("1.00", "USD"), "food"),
++        Transaction(date(2026, 1, 2), "b", Money("2.00", "EUR"), "food"),
++    ]
++    s = monthly_summary(Ledger(txs))
++    assert s["2026-01"][("food", "USD")] == Money("1.00", "USD")
++    assert s["2026-01"][("food", "EUR")] == Money("2.00", "EUR")
++
++
++def test_summary_single_currency_plain_keys():
++    txs = [
++        Transaction(date(2026, 1, 1), "a", Money("1.00", "USD"), "food"),
++        Transaction(date(2026, 1, 2), "b", Money("2.00", "USD"), "food"),
++    ]
++    s = monthly_summary(Ledger(txs))
++    assert s["2026-01"]["food"] == Money("3.00", "USD")
+ 
+ 
+ def test_query_category():

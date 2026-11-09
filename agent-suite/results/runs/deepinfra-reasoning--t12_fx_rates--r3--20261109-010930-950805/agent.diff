@@ -1,0 +1,124 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..0fa4728 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
++from .fx import RateTable, convert
+ from .ledger import Ledger, Transaction
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..63355e9
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,73 @@
++from datetime import date
++from decimal import Decimal, localcontext
++
++from .money import Money
++
++
++def _as_decimal(value):
++    if isinstance(value, Decimal):
++        return value
++    return Decimal(str(value))
++
++
++class RateTable:
++    """Historical exchange rates.
++
++    A rate added on a date applies from that date onward until a later rate
++    for the same pair supersedes it.
++    """
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on: date, base: str, quote: str, rate):
++        self._rates.setdefault((base, quote), {})[on] = _as_decimal(rate)
++
++    def _latest(self, base, quote, on):
++        entries = self._rates.get((base, quote))
++        if not entries:
++            return None
++        eligible = [d for d in entries if d <= on]
++        if not eligible:
++            return None
++        return entries[max(eligible)]
++
++    def _direct_or_inverse(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        rate = self._latest(base, quote, on)
++        if rate is not None:
++            return rate
++        rate = self._latest(quote, base, on)
++        if rate is not None:
++            return Decimal(1) / rate
++        return None
++
++    def rate(self, base: str, quote: str, on: date) -> Decimal:
++        if base == quote:
++            return Decimal(1)
++
++        with localcontext() as ctx:
++            ctx.prec = 28
++            direct = self._latest(base, quote, on)
++            if direct is not None:
++                return direct
++
++            inverse = self._latest(quote, base, on)
++            if inverse is not None:
++                return Decimal(1) / inverse
++
++            via_base = self._direct_or_inverse(base, "USD", on)
++            via_quote = self._direct_or_inverse("USD", quote, on)
++            if via_base is not None and via_quote is not None:
++                return via_base * via_quote
++
++        raise KeyError((base, quote, on))
++
++
++def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
++    """Convert money to another currency, rounding once to the cent."""
++    with localcontext() as ctx:
++        ctx.prec = 60
++        amount = money.amount * table.rate(money.currency, to, on)
++    return Money(amount, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..daeeac2 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,8 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
++from .fx import RateTable
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +34,23 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def balance_in(self, currency: str, table: RateTable, on: date | None = None) -> Money:
++        """Return the ledger total converted to currency.
++
++        Each transaction is converted at its own date, unless on is given, in
++        which case that date is used for every transaction. Converted amounts
++        are summed unrounded and rounded once at the end.
++        """
++        if not self.transactions:
++            return Money.zero(currency)
++        total = Decimal(0)
++        with localcontext() as ctx:
++            ctx.prec = 60
++            for tx in self.transactions:
++                when = on if on is not None else tx.date
++                total += tx.amount.amount * table.rate(tx.amount.currency, currency, when)
++        return Money(total, currency)
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:

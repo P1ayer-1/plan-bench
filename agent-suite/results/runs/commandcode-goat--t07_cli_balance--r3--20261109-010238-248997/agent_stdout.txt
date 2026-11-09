@@ -1,0 +1,1 @@
+Done. Added `balance` with `--since`, `--until`, and `--category` filtering via `Ledger.query`; invalid dates go to stderr with exit 2. All 4 tests pass.

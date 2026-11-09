@@ -1,0 +1,1 @@
+Implemented `ledger/reconcile.py` with the `Reconciliation` dataclass and `reconcile()`. It groups by exact `Money`, uses an optimal per-group dynamic program to maximize pairs then minimize total date distance, and preserves required ordering. Existing tests pass (`4 passed`).

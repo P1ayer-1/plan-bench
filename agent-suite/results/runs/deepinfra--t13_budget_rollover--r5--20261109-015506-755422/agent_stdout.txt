@@ -1,0 +1,1 @@
+Added `ledger/budget.py` implementing `budget_report` with monthly grouping, carry-over (floored at zero, optional cap), currency validation, and month validation. Existing tests pass (4 passed).

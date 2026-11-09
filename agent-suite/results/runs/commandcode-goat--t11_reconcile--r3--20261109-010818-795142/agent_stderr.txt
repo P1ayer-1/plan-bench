@@ -1,0 +1,1236 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f -not -path './.git/*' | sort
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:08 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:08 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  9 01:08 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+[0m
+[0m$ [0mgit status && git log --oneline -10
+On branch master
+nothing to commit, working tree clean
+428089b base
+[0m
+[0m$ [0mcat README.md && cat ledger/__init__.py && cat ledger/money.py && cat ledger/ledger.py
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+from .money import Money
+from .ledger import Ledger, Transaction
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+[0m
+[0m$ [0mcat ledger/parser.py && cat ledger/report.py && cat ledger/cli.py && cat tests/test_basic.py
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m← [0mWrite ledger/reconcile.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.49s
+[0m
+[0m$ [0mpython - <<'PY'
+import random, itertools
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+def brute(lt, bt, md):
+    best=None
+    # enumerate matchings via recursion
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            val=(len(pairs), -cost, pairs[:])
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(0)
+base=date(2026,1,1)
+for trial in range(500):
+    n=random.randint(0,5); m=random.randint(0,5)
+    md=random.randint(0,3)
+    def mk():
+        return Transaction(base+timedelta(days=random.randint(0,7)), '', Money(random.choice(['1.00','2.00','3.00'])), '')
+    lt=[mk() for _ in range(n)]
+    bt=[mk() for _ in range(m)]
+    r=reconcile(lt,bt,md)
+    got=(len(r.matched), sum(abs((a.date-b.date).days) for a,b in r.matched))
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1])
+    if got!=ex:
+        print('Mismatch',trial,n,m,md,got,ex)
+        print(lt); print(bt); print(r)
+        raise SystemExit(1)
+print('all ok')
+PY
+all ok
+[0m
+[0m$ [0mpython - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+random.seed(1)
+base=date(2026,1,1)
+L=[]; B=[]
+for g in range(30):
+    amt=Money(f'{g+1}.00')
+    for k in range(100):
+        L.append(Transaction(base+timedelta(days=random.randint(0,60)), '', amt, ''))
+        B.append(Transaction(base+timedelta(days=random.randint(0,60)), '', amt, ''))
+t=time.perf_counter(); r=reconcile(L,B,3); dt=time.perf_counter()-t
+print('pairs',len(r.matched),'time',dt)
+PY
+pairs 2795 time 1.5968897190000462
+[0m
+[0m$ [0mpython - <<'PY'
+import time
+from datetime import date
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+base=date(2026,1,1)
+L=[]; B=[]
+for g in range(30):
+    amt=Money(f'{g+1}.00')
+    for k in range(100):
+        L.append(Transaction(base, '', amt, ''))
+        B.append(Transaction(base, '', amt, ''))
+t=time.perf_counter(); r=reconcile(L,B,3); dt=time.perf_counter()-t
+print('pairs',len(r.matched),'time',dt)
+PY
+pairs 3000 time 10.163215860000491
+[0m
+[0m$ [0mpython - <<'PY'
+from pathlib import Path
+p=Path('ledger/reconcile.py')
+s=p.read_text()
+start=s.index('def _match_group(')
+end=s.index('\n\ndef reconcile(', start)
+new='''def _match_group(ledger_group, bank_group, max_days):
+    """Return ``(ledger_index, bank_index)`` pairs for one amount group.
+
+    Transactions with the same amount *and* date are interchangeable, so they
+    are collapsed into a single network node with a capacity equal to their
+    count.  This keeps the flow network small even for large groups.
+    """
+    ledger_by_date = {}
+    for index, tx in ledger_group:
+        ledger_by_date.setdefault(tx.date, []).append(index)
+    bank_by_date = {}
+    for index, tx in bank_group:
+        bank_by_date.setdefault(tx.date, []).append(index)
+
+    ledger_dates = list(ledger_by_date)
+    bank_dates = list(bank_by_date)
+    ledger_count = len(ledger_dates)
+    bank_count = len(bank_dates)
+
+    source = 0
+    ledger_base = 1
+    bank_base = ledger_base + ledger_count
+    sink = bank_base + bank_count
+
+    network = _MinCostMaxFlow(sink + 1)
+    for ledger_pos, ledger_date in enumerate(ledger_dates):
+        network.add_edge(
+            source,
+            ledger_base + ledger_pos,
+            len(ledger_by_date[ledger_date]),
+            0,
+        )
+    for bank_pos, bank_date in enumerate(bank_dates):
+        network.add_edge(
+            bank_base + bank_pos,
+            sink,
+            len(bank_by_date[bank_date]),
+            0,
+        )
+
+    candidate_edges = []
+    for ledger_pos, ledger_date in enumerate(ledger_dates):
+        ledger_capacity = len(ledger_by_date[ledger_date])
+        for bank_pos, bank_date in enumerate(bank_dates):
+            distance = abs((ledger_date - bank_date).days)
+            if distance <= max_days:
+                capacity = min(ledger_capacity, len(bank_by_date[bank_date]))
+                edge = network.add_edge(
+                    ledger_base + ledger_pos,
+                    bank_base + bank_pos,
+                    capacity,
+                    distance,
+                )
+                candidate_edges.append(
+                    (ledger_date, bank_date, capacity, edge)
+                )
+
+    network.max_flow(source, sink)
+
+    ledger_queues = {
+        ledger_date: list(indices)
+        for ledger_date, indices in ledger_by_date.items()
+    }
+    bank_queues = {
+        bank_date: list(indices)
+        for bank_date, indices in bank_by_date.items()
+    }
+
+    pairs = []
+    for ledger_date, bank_date, capacity, edge in candidate_edges:
+        used = capacity - edge[1]
+        for _ in range(used):
+            pairs.append(
+                (
+                    ledger_queues[ledger_date].pop(),
+                    bank_queues[bank_date].pop(),
+                )
+            )
+    return pairs'''
+s=s[:start]+new+s[end:]
+p.write_text(s)
+PY
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 0.27s
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(2)
+base=date(2026,1,1)
+for trial in range(1000):
+    n=random.randint(0,5); m=random.randint(0,5)
+    md=random.randint(0,3)
+    def mk():
+        return Transaction(base+timedelta(days=random.randint(0,7)), '', Money(random.choice(['1.00','2.00','3.00'])), '')
+    lt=[mk() for _ in range(n)]
+    bt=[mk() for _ in range(m)]
+    r=reconcile(lt,bt,md)
+    got=(len(r.matched), sum(abs((a.date-b.date).days) for a,b in r.matched))
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1])
+    if got!=ex:
+        print('Mismatch',trial,n,m,md,got,ex)
+        print(lt); print(bt); print(r)
+        raise SystemExit(1)
+print('all ok')
+PY
+all ok
+[0m
+[0m$ [0mpython - <<'PY'
+import time
+from datetime import date, timedelta
+import random
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+base=date(2026,1,1)
+L=[]; B=[]
+for g in range(30):
+    amt=Money(f'{g+1}.00')
+    for k in range(100):
+        L.append(Transaction(base, '', amt, ''))
+        B.append(Transaction(base, '', amt, ''))
+t=time.perf_counter(); r=reconcile(L,B,3); print('same-date pairs',len(r.matched),'time',time.perf_counter()-t)
+
+random.seed(1)
+L=[]; B=[]
+for g in range(30):
+    amt=Money(f'{g+1}.00')
+    for k in range(100):
+        L.append(Transaction(base+timedelta(days=random.randint(0,60)), '', amt, ''))
+        B.append(Transaction(base+timedelta(days=random.randint(0,60)), '', amt, ''))
+t=time.perf_counter(); r=reconcile(L,B,3); print('random pairs',len(r.matched),'time',time.perf_counter()-t)
+PY
+same-date pairs 3000 time 0.008113922999655188
+random pairs 2795 time 0.4888460860001942
+[0m
+[0m$ [0mpython - <<'PY'
+try:
+ import scipy
+ print('scipy', scipy.__version__)
+except Exception as e:
+ print('no scipy', e)
+try:
+ import numpy
+ print('numpy', numpy.__version__)
+except Exception as e:
+ print('no numpy', e)
+PY
+no scipy No module named 'scipy'
+no numpy No module named 'numpy'
+[0m
+[0m$ [0mpython - <<'PY'
+from pathlib import Path
+p=Path('ledger/reconcile.py')
+s=p.read_text()
+insert_at=s.index('def _match_group(')
+helper='''def _match_complete_group(ledger_group, bank_group):
+    """Optimal matching when every ledger/bank pair is allowed.
+
+    Matching all of the smaller side to a subset of the larger side on a line
+    is solved by a sequence-alignment dynamic program over sorted dates.
+    """
+    if not ledger_group or not bank_group:
+        return []
+
+    ledger_items = sorted(ledger_group, key=lambda item: item[1].date)
+    bank_items = sorted(bank_group, key=lambda item: item[1].date)
+
+    if len(ledger_items) <= len(bank_items):
+        smaller, larger = ledger_items, bank_items
+        ledger_is_smaller = True
+    else:
+        smaller, larger = bank_items, ledger_items
+        ledger_is_smaller = False
+
+    small_count = len(smaller)
+    large_count = len(larger)
+    inf = float("inf")
+
+    previous = [0] * (large_count + 1)
+    rows = [previous]
+    for small_pos in range(1, small_count + 1):
+        small_date = smaller[small_pos - 1][1].date
+        current = [inf] * (large_count + 1)
+        for large_pos in range(1, large_count + 1):
+            current[large_pos] = current[large_pos - 1]
+            distance = abs((small_date - larger[large_pos - 1][1].date).days)
+            candidate = previous[large_pos - 1] + distance
+            if candidate < current[large_pos]:
+                current[large_pos] = candidate
+        rows.append(current)
+        previous = current
+
+    pairs = []
+    small_pos = small_count
+    large_pos = large_count
+    while small_pos > 0:
+        small_date = smaller[small_pos - 1][1].date
+        distance = abs(
+            (small_date - larger[large_pos - 1][1].date).days
+        )
+        if rows[small_pos][large_pos] == (
+            rows[small_pos - 1][large_pos - 1] + distance
+        ):
+            small_index = smaller[small_pos - 1][0]
+            large_index = larger[large_pos - 1][0]
+            if ledger_is_smaller:
+                pairs.append((small_index, large_index))
+            else:
+                pairs.append((large_index, small_index))
+            small_pos -= 1
+            large_pos -= 1
+        else:
+            large_pos -= 1
+
+    return pairs
+
+
+'''
+s=s[:insert_at]+helper+s[insert_at:]
+# insert fast path at start of _match_group body after docstring
+needle='''    Transactions with the same amount *and* date are interchangeable, so they
+    are collapsed into a single network node with a capacity equal to their
+    count.  This keeps the flow network small even for large groups.
+    """
+'''
+replacement='''    Transactions with the same amount *and* date are interchangeable, so they
+    are collapsed into a single network node with a capacity equal to their
+    count.  This keeps the flow network small even for large groups.
+    """
+    if not ledger_group or not bank_group:
+        return []
+
+    ledger_dates_all = [tx.date for _, tx in ledger_group]
+    bank_dates_all = [tx.date for _, tx in bank_group]
+    max_distance = max(
+        abs(max(ledger_dates_all) - min(bank_dates_all)).days,
+        abs(min(ledger_dates_all) - max(bank_dates_all)).days,
+    )
+    if max_distance <= max_days:
+        return _match_complete_group(ledger_group, bank_group)
+'''
+if needle not in s:
+    raise SystemExit('needle not found')
+s=s.replace(needle,replacement,1)
+p.write_text(s)
+PY
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 0.26s
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(3)
+base=date(2026,1,1)
+for trial in range(2000):
+    n=random.randint(0,6); m=random.randint(0,6)
+    md=random.choice([0,1,2,3,5,100])
+    def mk():
+        return Transaction(base+timedelta(days=random.randint(0,8)), '', Money(random.choice(['1.00','2.00','3.00'])), '')
+    lt=[mk() for _ in range(n)]
+    bt=[mk() for _ in range(m)]
+    r=reconcile(lt,bt,md)
+    got=(len(r.matched), sum(abs((a.date-b.date).days) for a,b in r.matched))
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1])
+    if got!=ex:
+        print('Mismatch',trial,n,m,md,got,ex)
+        print(lt); print(bt); print(r)
+        raise SystemExit(1)
+print('all ok')
+PY
+all ok
+[0m
+[0m$ [0mpython - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+base=date(2026,1,1)
+for md in [3, 30, 10000]:
+    random.seed(1)
+    L=[]; B=[]
+    for g in range(30):
+        amt=Money(f'{g+1}.00')
+        for k in range(100):
+            L.append(Transaction(base+timedelta(days=random.randint(0,365)), '', amt, ''))
+            B.append(Transaction(base+timedelta(days=random.randint(0,365)), '', amt, ''))
+    t=time.perf_counter(); r=reconcile(L,B,md); dt=time.perf_counter()-t
+    print('md',md,'pairs',len(r.matched),'time',dt)
+PY
+md 3 pairs 1966 time 0.5945737990005
+md 30 pairs 2916 time 1.7288880420001078
+md 10000 pairs 3000 time 0.10207050300050469
+[0m
+[0m$ [0mcat -n ledger/reconcile.py
+1	"""Bank-statement reconciliation.
+     2	
+     3	Pair ledger transactions with bank transactions.  A pair is allowed when the
+     4	amounts are identical (including currency) and the dates are no more than
+     5	``max_days`` apart.  Pairings maximise the number of pairs first, then
+     6	minimise the total date distance.
+     7	"""
+     8	
+     9	from dataclasses import dataclass, field
+    10	from heapq import heappop, heappush
+    11	
+    12	
+    13	@dataclass
+    14	class Reconciliation:
+    15	    matched: list = field(default_factory=list)
+    16	    unmatched_ledger: list = field(default_factory=list)
+    17	    unmatched_bank: list = field(default_factory=list)
+    18	
+    19	
+    20	class _MinCostMaxFlow:
+    21	    """Small successive-shortest-paths min-cost max-flow implementation."""
+    22	
+    23	    def __init__(self, size):
+    24	        self.graph = [[] for _ in range(size)]
+    25	
+    26	    def add_edge(self, source, target, capacity, cost):
+    27	        forward = [target, capacity, cost, len(self.graph[target])]
+    28	        backward = [source, 0, -cost, len(self.graph[source])]
+    29	        self.graph[source].append(forward)
+    30	        self.graph[target].append(backward)
+    31	        return forward
+    32	
+    33	    def max_flow(self, source, sink):
+    34	        size = len(self.graph)
+    35	        potential = [0] * size
+    36	        inf = float("inf")
+    37	        flow = 0
+    38	
+    39	        while True:
+    40	            dist = [inf] * size
+    41	            prev_node = [-1] * size
+    42	            prev_edge = [-1] * size
+    43	            dist[source] = 0
+    44	            heap = [(0, source)]
+    45	
+    46	            while heap:
+    47	                distance, node = heappop(heap)
+    48	                if distance != dist[node]:
+    49	                    continue
+    50	                for edge_index, edge in enumerate(self.graph[node]):
+    51	                    target, capacity, cost, _ = edge
+    52	                    if capacity <= 0:
+    53	                        continue
+    54	                    new_distance = distance + cost + potential[node] - potential[target]
+    55	                    if new_distance < dist[target]:
+    56	                        dist[target] = new_distance
+    57	                        prev_node[target] = node
+    58	                        prev_edge[target] = edge_index
+    59	                        heappush(heap, (new_distance, target))
+    60	
+    61	            if dist[sink] == inf:
+    62	                break
+    63	
+    64	            for node in range(size):
+    65	                if dist[node] != inf:
+    66	                    potential[node] += dist[node]
+    67	
+    68	            add = inf
+    69	            node = sink
+    70	            while node != source:
+    71	                edge = self.graph[prev_node[node]][prev_edge[node]]
+    72	                add = min(add, edge[1])
+    73	                node = prev_node[node]
+    74	
+    75	            node = sink
+    76	            while node != source:
+    77	                parent = prev_node[node]
+    78	                edge = self.graph[parent][prev_edge[node]]
+    79	                edge[1] -= add
+    80	                self.graph[node][edge[3]][1] += add
+    81	                node = parent
+    82	
+    83	            flow += add
+    84	
+    85	        return flow
+    86	
+    87	
+    88	def _match_complete_group(ledger_group, bank_group):
+    89	    """Optimal matching when every ledger/bank pair is allowed.
+    90	
+    91	    Matching all of the smaller side to a subset of the larger side on a line
+    92	    is solved by a sequence-alignment dynamic program over sorted dates.
+    93	    """
+    94	    if not ledger_group or not bank_group:
+    95	        return []
+    96	
+    97	    ledger_items = sorted(ledger_group, key=lambda item: item[1].date)
+    98	    bank_items = sorted(bank_group, key=lambda item: item[1].date)
+    99	
+   100	    if len(ledger_items) <= len(bank_items):
+   101	        smaller, larger = ledger_items, bank_items
+   102	        ledger_is_smaller = True
+   103	    else:
+   104	        smaller, larger = bank_items, ledger_items
+   105	        ledger_is_smaller = False
+   106	
+   107	    small_count = len(smaller)
+   108	    large_count = len(larger)
+   109	    inf = float("inf")
+   110	
+   111	    previous = [0] * (large_count + 1)
+   112	    rows = [previous]
+   113	    for small_pos in range(1, small_count + 1):
+   114	        small_date = smaller[small_pos - 1][1].date
+   115	        current = [inf] * (large_count + 1)
+   116	        for large_pos in range(1, large_count + 1):
+   117	            current[large_pos] = current[large_pos - 1]
+   118	            distance = abs((small_date - larger[large_pos - 1][1].date).days)
+   119	            candidate = previous[large_pos - 1] + distance
+   120	            if candidate < current[large_pos]:
+   121	                current[large_pos] = candidate
+   122	        rows.append(current)
+   123	        previous = current
+   124	
+   125	    pairs = []
+   126	    small_pos = small_count
+   127	    large_pos = large_count
+   128	    while small_pos > 0:
+   129	        small_date = smaller[small_pos - 1][1].date
+   130	        distance = abs(
+   131	            (small_date - larger[large_pos - 1][1].date).days
+   132	        )
+   133	        if rows[small_pos][large_pos] == (
+   134	            rows[small_pos - 1][large_pos - 1] + distance
+   135	        ):
+   136	            small_index = smaller[small_pos - 1][0]
+   137	            large_index = larger[large_pos - 1][0]
+   138	            if ledger_is_smaller:
+   139	                pairs.append((small_index, large_index))
+   140	            else:
+   141	                pairs.append((large_index, small_index))
+   142	            small_pos -= 1
+   143	            large_pos -= 1
+   144	        else:
+   145	            large_pos -= 1
+   146	
+   147	    return pairs
+   148	
+   149	
+   150	def _match_group(ledger_group, bank_group, max_days):
+   151	    """Return ``(ledger_index, bank_index)`` pairs for one amount group.
+   152	
+   153	    Transactions with the same amount *and* date are interchangeable, so they
+   154	    are collapsed into a single network node with a capacity equal to their
+   155	    count.  This keeps the flow network small even for large groups.
+   156	    """
+   157	    if not ledger_group or not bank_group:
+   158	        return []
+   159	
+   160	    ledger_dates_all = [tx.date for _, tx in ledger_group]
+   161	    bank_dates_all = [tx.date for _, tx in bank_group]
+   162	    max_distance = max(
+   163	        abs(max(ledger_dates_all) - min(bank_dates_all)).days,
+   164	        abs(min(ledger_dates_all) - max(bank_dates_all)).days,
+   165	    )
+   166	    if max_distance <= max_days:
+   167	        return _match_complete_group(ledger_group, bank_group)
+   168	    ledger_by_date = {}
+   169	    for index, tx in ledger_group:
+   170	        ledger_by_date.setdefault(tx.date, []).append(index)
+   171	    bank_by_date = {}
+   172	    for index, tx in bank_group:
+   173	        bank_by_date.setdefault(tx.date, []).append(index)
+   174	
+   175	    ledger_dates = list(ledger_by_date)
+   176	    bank_dates = list(bank_by_date)
+   177	    ledger_count = len(ledger_dates)
+   178	    bank_count = len(bank_dates)
+   179	
+   180	    source = 0
+   181	    ledger_base = 1
+   182	    bank_base = ledger_base + ledger_count
+   183	    sink = bank_base + bank_count
+   184	
+   185	    network = _MinCostMaxFlow(sink + 1)
+   186	    for ledger_pos, ledger_date in enumerate(ledger_dates):
+   187	        network.add_edge(
+   188	            source,
+   189	            ledger_base + ledger_pos,
+   190	            len(ledger_by_date[ledger_date]),
+   191	            0,
+   192	        )
+   193	    for bank_pos, bank_date in enumerate(bank_dates):
+   194	        network.add_edge(
+   195	            bank_base + bank_pos,
+   196	            sink,
+   197	            len(bank_by_date[bank_date]),
+   198	            0,
+   199	        )
+   200	
+   201	    candidate_edges = []
+   202	    for ledger_pos, ledger_date in enumerate(ledger_dates):
+   203	        ledger_capacity = len(ledger_by_date[ledger_date])
+   204	        for bank_pos, bank_date in enumerate(bank_dates):
+   205	            distance = abs((ledger_date - bank_date).days)
+   206	            if distance <= max_days:
+   207	                capacity = min(ledger_capacity, len(bank_by_date[bank_date]))
+   208	                edge = network.add_edge(
+   209	                    ledger_base + ledger_pos,
+   210	                    bank_base + bank_pos,
+   211	                    capacity,
+   212	                    distance,
+   213	                )
+   214	                candidate_edges.append(
+   215	                    (ledger_date, bank_date, capacity, edge)
+   216	                )
+   217	
+   218	    network.max_flow(source, sink)
+   219	
+   220	    ledger_queues = {
+   221	        ledger_date: list(indices)
+   222	        for ledger_date, indices in ledger_by_date.items()
+   223	    }
+   224	    bank_queues = {
+   225	        bank_date: list(indices)
+   226	        for bank_date, indices in bank_by_date.items()
+   227	    }
+   228	
+   229	    pairs = []
+   230	    for ledger_date, bank_date, capacity, edge in candidate_edges:
+   231	        used = capacity - edge[1]
+   232	        for _ in range(used):
+   233	            pairs.append(
+   234	                (
+   235	                    ledger_queues[ledger_date].pop(),
+   236	                    bank_queues[bank_date].pop(),
+   237	                )
+   238	            )
+   239	    return pairs
+   240	
+   241	def reconcile(ledger_txs, bank_txs, max_days=3):
+   242	    """Reconcile ledger and bank transactions.
+   243	
+   244	    Returns a :class:`Reconciliation` whose ``matched`` list contains
+   245	    ``(ledger_tx, bank_tx)`` tuples ordered by the ledger transaction's input
+   246	    position.  ``unmatched_ledger`` and ``unmatched_bank`` preserve input order.
+   247	    """
+   248	    ledger_txs = list(ledger_txs)
+   249	    bank_txs = list(bank_txs)
+   250	
+   251	    groups = {}
+   252	    for index, tx in enumerate(ledger_txs):
+   253	        groups.setdefault(tx.amount, ([], []))[0].append((index, tx))
+   254	    for index, tx in enumerate(bank_txs):
+   255	        groups.setdefault(tx.amount, ([], []))[1].append((index, tx))
+   256	
+   257	    ledger_matched = [False] * len(ledger_txs)
+   258	    bank_matched = [False] * len(bank_txs)
+   259	    matched_indices = []
+   260	
+   261	    for ledger_group, bank_group in groups.values():
+   262	        if not ledger_group or not bank_group:
+   263	            continue
+   264	        for ledger_index, bank_index in _match_group(
+   265	            ledger_group, bank_group, max_days
+   266	        ):
+   267	            ledger_matched[ledger_index] = True
+   268	            bank_matched[bank_index] = True
+   269	            matched_indices.append((ledger_index, bank_index))
+   270	
+   271	    matched_indices.sort(key=lambda pair: pair[0])
+   272	    matched = [
+   273	        (ledger_txs[ledger_index], bank_txs[bank_index])
+   274	        for ledger_index, bank_index in matched_indices
+   275	    ]
+   276	    unmatched_ledger = [
+   277	        tx for index, tx in enumerate(ledger_txs) if not ledger_matched[index]
+   278	    ]
+   279	    unmatched_bank = [
+   280	        tx for index, tx in enumerate(bank_txs) if not bank_matched[index]
+   281	    ]
+   282	
+   283	    return Reconciliation(
+   284	        matched=matched,
+   285	        unmatched_ledger=unmatched_ledger,
+   286	        unmatched_bank=unmatched_bank,
+   287	    )
+[0m
+[0m$ [0mpython - <<'PY'
+from pathlib import Path
+p=Path('ledger/reconcile.py')
+s=p.read_text()
+s=s.replace('    return pairs\n\ndef reconcile(ledger_txs, bank_txs, max_days=3):', '    return pairs\n\n\ndef reconcile(ledger_txs, bank_txs, max_days=3) -> Reconciliation:')
+p.write_text(s)
+PY
+python -m pytest -q && git status --short && git diff --stat
+....                                                                     [100%]
+4 passed in 0.31s
+?? ledger/reconcile.py
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+
+def better(a,b):
+    return a if (a[0]>b[0] or (a[0]==b[0] and a[1]<=b[1])) else b
+
+def dp_match(L,B,D):
+    n=len(L);m=len(B)
+    dp=[[(0,0)]*(m+1) for _ in range(n+1)]
+    for i in range(1,n+1):
+        for j in range(1,m+1):
+            best=better(dp[i-1][j],dp[i][j-1])
+            dist=abs((L[i-1].date-B[j-1].date).days)
+            if dist<=D:
+                p=dp[i-1][j-1]
+                cand=(p[0]+1,p[1]+dist)
+                best=better(best,cand)
+            dp[i][j]=best
+    pairs=[];i=n;j=m
+    while i>0 and j>0:
+        dist=abs((L[i-1].date-B[j-1].date).days)
+        cand=None
+        if dist<=D:
+            p=dp[i-1][j-1];cand=(p[0]+1,p[1]+dist)
+        if cand==dp[i][j]:
+            pairs.append((i-1,j-1));i-=1;j-=1
+        elif dp[i-1][j]==dp[i][j]:
+            i-=1
+        else:
+            j-=1
+    return dp[n][m],pairs
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(4)
+base=date(2026,1,1)
+for trial in range(10000):
+    n=random.randint(0,6); m=random.randint(0,6); md=random.choice([0,1,2,3,5,100])
+    def mk(): return Transaction(base+timedelta(days=random.randint(0,10)), '', Money('1.00'), '')
+    lt=[mk() for _ in range(n)]; bt=[mk() for _ in range(m)]
+    val,pairs=dp_match(lt,bt,md)
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1]) if exp else (0,0)
+    if val!=ex:
+        print('Mismatch',trial,n,m,md,val,ex)
+        print(lt);print(bt);print(pairs)
+        raise SystemExit
+print('all dp ok')
+PY
+Mismatch 2 3 4 2 (1, 0) (3, 3)
+[Transaction(date=datetime.date(2026, 1, 1), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 4), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 9), description='', amount=Money('1.00', 'USD'), category='', tags=())]
+[Transaction(date=datetime.date(2026, 1, 9), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 6), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 5), description='', amount=Money('1.00', 'USD'), category='', tags=()), Transaction(date=datetime.date(2026, 1, 3), description='', amount=Money('1.00', 'USD'), category='', tags=())]
+[(2, 0)]
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+
+def better(a,b):
+    return a if (a[0]>b[0] or (a[0]==b[0] and a[1]<=b[1])) else b
+
+def dp_match(L0,B0,D):
+    L=sorted([(t.date,i) for i,t in enumerate(L0)])
+    B=sorted([(t.date,i) for i,t in enumerate(B0)])
+    n=len(L);m=len(B)
+    dp=[[(0,0)]*(m+1) for _ in range(n+1)]
+    for i in range(1,n+1):
+        for j in range(1,m+1):
+            best=better(dp[i-1][j],dp[i][j-1])
+            dist=abs((L[i-1][0]-B[j-1][0]).days)
+            if dist<=D:
+                p=dp[i-1][j-1]
+                cand=(p[0]+1,p[1]+dist)
+                best=better(best,cand)
+            dp[i][j]=best
+    pairs=[];i=n;j=m
+    while i>0 and j>0:
+        dist=abs((L[i-1][0]-B[j-1][0]).days)
+        cand=None
+        if dist<=D:
+            p=dp[i-1][j-1];cand=(p[0]+1,p[1]+dist)
+        if cand==dp[i][j]:
+            pairs.append((L[i-1][1],B[j-1][1]));i-=1;j-=1
+        elif dp[i-1][j]==dp[i][j]:
+            i-=1
+        else:
+            j-=1
+    return dp[n][m],pairs
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(5)
+base=date(2026,1,1)
+for trial in range(20000):
+    n=random.randint(0,6); m=random.randint(0,6); md=random.choice([0,1,2,3,5,100])
+    def mk(): return Transaction(base+timedelta(days=random.randint(0,10)), '', Money('1.00'), '')
+    lt=[mk() for _ in range(n)]; bt=[mk() for _ in range(m)]
+    val,pairs=dp_match(lt,bt,md)
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1]) if exp else (0,0)
+    if val!=ex:
+        print('Mismatch',trial,n,m,md,val,ex)
+        print(lt);print(bt);print(pairs)
+        raise SystemExit
+print('all dp sorted ok')
+PY
+all dp sorted ok
+[0m
+[0m← [0mWrite ledger/reconcile.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(6)
+base=date(2026,1,1)
+for trial in range(10000):
+    n=random.randint(0,6); m=random.randint(0,6); md=random.choice([0,1,2,3,5,100,-1])
+    def mk(): return Transaction(base+timedelta(days=random.randint(0,10)), '', Money(random.choice(['1.00','2.00'])), '')
+    lt=[mk() for _ in range(n)]; bt=[mk() for _ in range(m)]
+    r=reconcile(lt,bt,md)
+    got=(len(r.matched), sum(abs((a.date-b.date).days) for a,b in r.matched))
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1]) if exp else (0,0)
+    if got!=ex:
+        print('Mismatch',trial,n,m,md,got,ex)
+        print(lt); print(bt); print(r)
+        raise SystemExit(1)
+    # Validate all input accounted for and matched order
+    assert len(r.matched)+len(r.unmatched_ledger)==n
+    assert len(r.matched)+len(r.unmatched_bank)==m
+    positions=[lt.index(a) for a,b in r.matched]
+    assert positions==sorted(positions)
+print('all ok')
+PY
+Traceback (most recent call last):
+  File "<stdin>", line 41, in <module>
+AssertionError
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.85s
+[0m
+[0m$ [0mpython - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+base=date(2026,1,1)
+for md in [3, 30, 10000]:
+    random.seed(1)
+    L=[]; B=[]
+    for g in range(30):
+        amt=Money(f'{g+1}.00')
+        for k in range(100):
+            L.append(Transaction(base+timedelta(days=random.randint(0,365)), '', amt, ''))
+            B.append(Transaction(base+timedelta(days=random.randint(0,365)), '', amt, ''))
+    t=time.perf_counter(); r=reconcile(L,B,md); dt=time.perf_counter()-t
+    print('md',md,'pairs',len(r.matched),'time',dt)
+PY
+md 3 pairs 1966 time 0.1157632399999784
+md 30 pairs 2916 time 0.1330119440008275
+md 10000 pairs 3000 time 0.18759476099967287
+[0m
+[0m$ [0mpython - <<'PY'
+import random
+from datetime import date, timedelta
+from ledger import Money, Transaction
+from ledger.reconcile import reconcile
+
+def brute(lt, bt, md):
+    best=None
+    def rec(i, used, pairs, cost):
+        nonlocal best
+        if i==len(lt):
+            if best is None or (len(pairs), -cost) > (best[0], -best[1]):
+                best=(len(pairs), cost, pairs[:])
+            return
+        rec(i+1, used, pairs, cost)
+        for j,b in enumerate(bt):
+            if j in used: continue
+            d=abs((lt[i].date-b.date).days)
+            if lt[i].amount==b.amount and d<=md:
+                used.add(j); pairs.append((i,j)); rec(i+1, used, pairs, cost+d); pairs.pop(); used.remove(j)
+    rec(0,set(),[],0)
+    return best
+
+random.seed(7)
+base=date(2026,1,1)
+for trial in range(10000):
+    n=random.randint(0,6); m=random.randint(0,6); md=random.choice([0,1,2,3,5,100,-1])
+    def mk(): return Transaction(base+timedelta(days=random.randint(0,10)), '', Money(random.choice(['1.00','2.00'])), '')
+    lt=[mk() for _ in range(n)]; bt=[mk() for _ in range(m)]
+    r=reconcile(lt,bt,md)
+    got=(len(r.matched), sum(abs((a.date-b.date).days) for a,b in r.matched))
+    exp=brute(lt,bt,md)
+    ex=(exp[0],exp[1]) if exp else (0,0)
+    if got!=ex:
+        print('Mismatch',trial,n,m,md,got,ex)
+        raise SystemExit(1)
+    assert len(r.matched)+len(r.unmatched_ledger)==n
+    assert len(r.matched)+len(r.unmatched_bank)==m
+print('all ok')
+PY
+python -m pytest -q
+git status --short
+all ok
+....                                                                     [100%]
+4 passed in 0.24s
+?? ledger/reconcile.py
+[0m

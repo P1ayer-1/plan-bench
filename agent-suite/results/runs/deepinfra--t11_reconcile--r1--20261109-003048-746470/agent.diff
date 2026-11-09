@@ -1,0 +1,184 @@
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..dc81a0e 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .reconcile import Reconciliation, reconcile
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..a1415ea
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,170 @@
++"""Bank-statement reconciliation against a ledger.
++
++A ledger transaction and a bank transaction may be paired only when their
++amounts are equal (``Money`` equality, which includes the currency) and their
++dates are at most ``max_days`` days apart in either direction.
++
++The returned :class:`Reconciliation` holds the largest possible number of
++pairs, and among those the pairing with the smallest total date distance (sum
++of absolute day differences).  Ties on both criteria may resolve either way.
++"""
++
++from dataclasses import dataclass, field
++from typing import List, Tuple
++
++
++@dataclass
++class Reconciliation:
++    matched: List[Tuple[object, object]] = field(default_factory=list)
++    unmatched_ledger: List[object] = field(default_factory=list)
++    unmatched_bank: List[object] = field(default_factory=list)
++
++
++def _min_cost_matching(costs):
++    """Solve a rectangular assignment problem.
++
++    ``costs`` is a list of rows (ledger side); ``costs[i][j]`` is the integer
++    cost of pairing row ``i`` with column ``j`` or ``None`` when the pair is
++    not allowed.  Returns a list of ``(i, j)`` pairs whose cardinality is
++    maximal and whose total cost is minimal among maximal matchings.
++
++    Uses min-cost max-flow on a small bipartite graph (Suurballe/shortest-path
++    augmentation with potentials).  Costs are non-negative.
++    """
++    n = len(costs)
++    if n == 0:
++        return []
++    m = len(costs[0]) if costs else 0
++    if m == 0:
++        return []
++
++    # Node indexing: source=0, rows 1..n, cols 1+n..n+m, sink=n+m+1
++    source = 0
++    sink = n + m + 1
++    num_nodes = n + m + 2
++
++    graph = [[] for _ in range(num_nodes)]
++
++    def add_edge(u, v, cap, cost):
++        graph[u].append([v, cap, cost, len(graph[v])])
++        graph[v].append([u, 0, -cost, len(graph[u]) - 1])
++
++    BIG = 10 ** 9
++    for i in range(n):
++        add_edge(source, 1 + i, 1, 0)
++        for j, c in enumerate(costs[i]):
++            if c is not None:
++                add_edge(1 + i, 1 + n + j, 1, c)
++    for j in range(m):
++        add_edge(1 + n + j, sink, 1, 0)
++
++    # Successive shortest paths with Johnson potentials.  All original costs
++    # are >= 0 so zero initial potentials are valid.
++    potential = [0] * num_nodes
++    INF = float("inf")
++
++    while True:
++        dist = [INF] * num_nodes
++        prev_node = [-1] * num_nodes
++        prev_edge = [-1] * num_nodes
++        dist[source] = 0
++        # Small graphs -> Bellman-Ford style SPFA is fine and robust.
++        in_queue = [False] * num_nodes
++        from collections import deque
++
++        dq = deque([source])
++        in_queue[source] = True
++        while dq:
++            u = dq.popleft()
++            in_queue[u] = False
++            du = dist[u]
++            for idx, e in enumerate(graph[u]):
++                v, cap, cost, _rev = e
++                if cap <= 0:
++                    continue
++                nd = du + cost + potential[u] - potential[v]
++                if nd < dist[v]:
++                    dist[v] = nd
++                    prev_node[v] = u
++                    prev_edge[v] = idx
++                    if not in_queue[v]:
++                        in_queue[v] = True
++                        dq.append(v)
++        if dist[sink] == INF:
++            break
++        for v in range(num_nodes):
++            if dist[v] != INF:
++                potential[v] += dist[v]
++        # Augment one unit along the found path.
++        v = sink
++        while v != source:
++            u = prev_node[v]
++            e = graph[u][prev_edge[v]]
++            e[1] -= 1
++            graph[v][e[3]][1] += 1
++            v = u
++
++    pairs = []
++    for i in range(n):
++        for e in graph[1 + i]:
++            v, cap, cost, _rev = e
++            if 1 + n <= v < 1 + n + m and cap == 0:
++                # This forward edge was used iff its reverse has capacity 1.
++                if graph[v][e[3]][1] == 1:
++                    pairs.append((i, v - (1 + n)))
++    return pairs
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3) -> Reconciliation:
++    """Reconcile ``ledger_txs`` against ``bank_txs``.
++
++    See module docstring for the pairing rules.  Each element of the two input
++    sequences is treated as a distinct transaction, even when two look
++    identical.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    matched = []
++    matched_ledger = set()
++    matched_bank = set()
++
++    # Only transactions sharing an amount can ever be paired.  Bucket both
++    # sides by amount so each matching sub-problem stays small.
++    bank_by_amount = {}
++    for j, btx in enumerate(bank_txs):
++        bank_by_amount.setdefault(btx.amount, []).append(j)
++
++    ledger_by_amount = {}
++    for i, ltx in enumerate(ledger_txs):
++        ledger_by_amount.setdefault(ltx.amount, []).append(i)
++
++    from datetime import timedelta
++
++    for amount, ledger_indices in ledger_by_amount.items():
++        bank_indices = bank_by_amount.get(amount)
++        if not bank_indices:
++            continue
++
++        costs = []
++        for i in ledger_indices:
++            ltx = ledger_txs[i]
++            row = []
++            for j in bank_indices:
++                delta = abs((ltx.date - bank_txs[j].date).days)
++                row.append(delta if delta <= max_days else None)
++            costs.append(row)
++
++        for ci, cj in _min_cost_matching(costs):
++            matched.append((ledger_indices[ci], bank_indices[cj]))
++
++    matched.sort(key=lambda p: p[0])
++
++    result = Reconciliation()
++    for i, j in matched:
++        matched_ledger.add(i)
++        matched_bank.add(j)
++        result.matched.append((ledger_txs[i], bank_txs[j]))
++    result.unmatched_ledger = [t for i, t in enumerate(ledger_txs) if i not in matched_ledger]
++    result.unmatched_bank = [t for j, t in enumerate(bank_txs) if j not in matched_bank]
++    return result

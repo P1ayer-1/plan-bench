@@ -1,0 +1,19 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..384a40f 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -42,9 +42,12 @@ class Ledger:
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""
+         result = []
++        seen = set()
+         for tx in self.transactions:
+             key = (tx.date, tx.description, tx.amount)
+-            if key not in [(t.date, t.description, t.amount) for t in result]:
+-                result.append(tx)
++            if key in seen:
++                continue
++            seen.add(key)
++            result.append(tx)
+         self.transactions = result
+         return self

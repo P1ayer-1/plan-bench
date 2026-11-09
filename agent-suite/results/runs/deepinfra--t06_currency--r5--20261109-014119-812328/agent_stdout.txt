@@ -1,0 +1,8 @@
+Update existing test and add coverage for new behavior.
+All 8 tests pass. Summary of changes:
+
+- `ledger/money.py`: added `CurrencyMismatch`; `+`, `-`, `<` now reject differing currencies.
+- `ledger/ledger.py`: `balance()` returns `{currency: Money}` (`{}` when empty).
+- `ledger/report.py`: `monthly_summary` groups by `(category, currency)` only for multi-currency months.
+- `ledger/cli.py`: prints mixed-currency keys as `category [CUR]`.
+- `ledger/__init__.py`: exports `CurrencyMismatch`; tests updated/added.

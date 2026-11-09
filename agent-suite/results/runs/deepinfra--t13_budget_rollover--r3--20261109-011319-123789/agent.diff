@@ -1,0 +1,106 @@
+diff --git a/ledger/budget.py b/ledger/budget.py
+new file mode 100644
+index 0000000..c388ad6
+--- /dev/null
++++ b/ledger/budget.py
+@@ -0,0 +1,100 @@
++import re
++
++from .money import Money
++
++_MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
++
++
++def _parse_month(value):
++    """Parse "YYYY-MM" into (year, month), raising ValueError if malformed."""
++    if not isinstance(value, str):
++        raise ValueError(f"malformed month: {value!r}")
++    match = _MONTH_RE.match(value)
++    if match is None:
++        raise ValueError(f"malformed month: {value!r}")
++    year, month = int(match.group(1)), int(match.group(2))
++    if not 1 <= month <= 12:
++        raise ValueError(f"malformed month: {value!r}")
++    return year, month
++
++
++def _month_key(year, month):
++    return f"{year:04d}-{month:02d}"
++
++
++def _months(start, end):
++    year, month = start
++    while (year, month) <= end:
++        yield year, month
++        month += 1
++        if month > 12:
++            month = 1
++            year += 1
++
++
++def budget_report(ledger, budgets, start_month, end_month, rollover_cap=None):
++    """Return {month: {category: row}} with monthly budgets and rollover.
++
++    Each row has Money values: budget, carried_in, spent, available, remaining.
++    """
++    start = _parse_month(start_month)
++    end = _parse_month(end_month)
++    if start > end:
++        raise ValueError(f"start_month {start_month!r} is after end_month {end_month!r}")
++
++    categories = list(budgets)
++    first_currency = {}
++    for category in categories:
++        first_currency[category] = budgets[category].currency
++
++    spent_by_month = {}
++    for tx in ledger.transactions:
++        key = (tx.date.year, tx.date.month)
++        if key < start or key > end:
++            continue
++        if tx.category not in budgets:
++            continue
++        expected = first_currency[tx.category]
++        if tx.amount.currency != expected:
++            raise ValueError(
++                f"transaction currency {tx.amount.currency!r} for category "
++                f"{tx.category!r} does not match budget currency {expected!r}"
++            )
++        month = _month_key(tx.date.year, tx.date.month)
++        month_cat = spent_by_month.setdefault(month, {})
++        if tx.category not in month_cat:
++            month_cat[tx.category] = Money.zero(expected)
++        month_cat[tx.category] = month_cat[tx.category] - tx.amount
++
++    result = {}
++    carried = {category: Money.zero(first_currency[category]) for category in categories}
++    for year, month in _months(start, end):
++        month_key = _month_key(year, month)
++        rows = {}
++        spent_this_month = spent_by_month.get(month_key, {})
++        next_carried = {}
++        for category in categories:
++            budget = budgets[category]
++            currency = budget.currency
++            carried_in = carried[category]
++            spent = spent_this_month.get(category, Money.zero(currency))
++            available = budget + carried_in
++            remaining = available - spent
++
++            next_amount = remaining.amount
++            if next_amount < 0:
++                next_amount = 0
++            if rollover_cap is not None and next_amount > rollover_cap.amount:
++                next_amount = rollover_cap.amount
++            next_carried[category] = Money(next_amount, currency)
++
++            rows[category] = {
++                "budget": budget,
++                "carried_in": carried_in,
++                "spent": spent,
++                "available": available,
++                "remaining": remaining,
++            }
++        result[month_key] = rows
++        carried = next_carried
++    return result

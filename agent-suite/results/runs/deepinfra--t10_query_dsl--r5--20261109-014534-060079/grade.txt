@@ -1,0 +1,18 @@
+..................F                                                      [100%]
+=================================== FAILURES ===================================
+____________________________ test_errors[category:] ____________________________
+
+q = 'category:'
+
+    @pytest.mark.parametrize("q", [
+        "foo:bar", "(category:food", "category:food)", "category:food AND", "OR tag:x", "NOT",
+        "amount<<5", "amount<abc", "date>2026-13-01", 'desc:"unterminated', "()", "amount", "category:",
+    ])
+    def test_errors(q):
+>       with pytest.raises(ValueError):
+E       Failed: DID NOT RAISE <class 'ValueError'>
+
+_hidden_test_t10_query_dsl.py:74: Failed
+=========================== short test summary info ============================
+FAILED _hidden_test_t10_query_dsl.py::test_errors[category:] - Failed: DID NO...
+1 failed, 18 passed in 0.21s

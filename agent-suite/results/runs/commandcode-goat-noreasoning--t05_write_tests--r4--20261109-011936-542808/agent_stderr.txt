@@ -1,0 +1,35 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m→ [0mRead ledger/report.py
+[0m
+[0m$ [0mls -R . | head -50 && cat pyproject.toml setup.cfg pytest.ini 2>/dev/null
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/__init__.py
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+............................                                             [100%]
+28 passed in 2.14s
+[0m

@@ -1,0 +1,516 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | head -100 && echo "---" && git status --short
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+---
+[0m
+[0m$ [0mfor f in ledger/*.py tests/*.py README.md; do echo "=== $f ==="; cat -n "$f"; done
+=== ledger/__init__.py ===
+     1	from .money import Money
+     2	from .ledger import Ledger, Transaction
+=== ledger/cli.py ===
+     1	import argparse, sys
+     2	from .ledger import Ledger
+     3	from .parser import parse_csv
+     4	from .report import monthly_summary
+     5	
+     6	
+     7	def main(argv=None):
+     8	    ap = argparse.ArgumentParser(prog="ledger")
+     9	    sub = ap.add_subparsers(dest="cmd", required=True)
+    10	    s = sub.add_parser("summary", help="monthly category summary")
+    11	    s.add_argument("file")
+    12	    args = ap.parse_args(argv)
+    13	
+    14	    with open(args.file) as f:
+    15	        ledger = Ledger(parse_csv(f.read()))
+    16	    if args.cmd == "summary":
+    17	        for month, cats in monthly_summary(ledger).items():
+    18	            print(month)
+    19	            for cat, total in sorted(cats.items()):
+    20	                print(f"  {cat}: {total}")
+    21	    return 0
+    22	
+    23	
+    24	if __name__ == "__main__":
+    25	    sys.exit(main())
+=== ledger/ledger.py ===
+     1	from dataclasses import dataclass, field
+     2	from datetime import date
+     3	from .money import Money
+     4	
+     5	
+     6	@dataclass(frozen=True)
+     7	class Transaction:
+     8	    date: date
+     9	    description: str
+    10	    amount: Money
+    11	    category: str
+    12	    tags: tuple = field(default_factory=tuple)
+    13	
+    14	
+    15	class Ledger:
+    16	    def __init__(self, transactions=None):
+    17	        self.transactions = list(transactions or [])
+    18	
+    19	    def add(self, tx):
+    20	        self.transactions.append(tx)
+    21	
+    22	    def query(self, category=None, start=None, end=None):
+    23	        """Return transactions matching all given filters (dates inclusive)."""
+    24	        out = []
+    25	        for tx in self.transactions:
+    26	            if category is not None and tx.category != category:
+    27	                continue
+    28	            if start is not None and tx.date < start:
+    29	                continue
+    30	            if end is not None and tx.date > end:
+    31	                continue
+    32	            out.append(tx)
+    33	        return out
+    34	
+    35	    def balance(self):
+    36	        total = Money.zero()
+    37	        for tx in self.transactions:
+    38	            total = total + tx.amount
+    39	        return total
+    40	
+    41	    def dedupe(self):
+    42	        """Remove duplicate transactions (same date, description and amount),
+    43	        keeping the first occurrence and preserving order."""
+    44	        result = []
+    45	        for tx in self.transactions:
+    46	            key = (tx.date, tx.description, tx.amount)
+    47	            if key not in [(t.date, t.description, t.amount) for t in result]:
+    48	                result.append(tx)
+    49	        self.transactions = result
+    50	        return self
+=== ledger/money.py ===
+     1	from decimal import Decimal, ROUND_HALF_UP
+     2	
+     3	CENT = Decimal("0.01")
+     4	
+     5	
+     6	class Money:
+     7	    """An amount of money in a single currency, stored to the cent."""
+     8	
+     9	    def __init__(self, amount, currency="USD"):
+    10	        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+    11	        self.currency = currency
+    12	
+    13	    def __add__(self, other):
+    14	        return Money(self.amount + other.amount, self.currency)
+    15	
+    16	    def __sub__(self, other):
+    17	        return Money(self.amount - other.amount, self.currency)
+    18	
+    19	    def __mul__(self, factor):
+    20	        return Money(self.amount * Decimal(str(factor)), self.currency)
+    21	
+    22	    def __neg__(self):
+    23	        return Money(-self.amount, self.currency)
+    24	
+    25	    def __eq__(self, other):
+    26	        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+    27	
+    28	    def __hash__(self):
+    29	        return hash((self.amount, self.currency))
+    30	
+    31	    def __lt__(self, other):
+    32	        return self.amount < other.amount
+    33	
+    34	    def __repr__(self):
+    35	        return f"Money('{self.amount}', '{self.currency}')"
+    36	
+    37	    def __str__(self):
+    38	        return f"{self.amount} {self.currency}"
+    39	
+    40	    def split(self, n):
+    41	        """Split into n parts."""
+    42	        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+    43	        return [Money(part, self.currency) for _ in range(n)]
+    44	
+    45	    @classmethod
+    46	    def zero(cls, currency="USD"):
+    47	        return cls(0, currency)
+=== ledger/parser.py ===
+     1	from datetime import date
+     2	from .money import Money
+     3	from .ledger import Transaction
+     4	
+     5	HEADER = ["date", "description", "amount", "category", "tags"]
+     6	
+     7	
+     8	def parse_csv(text):
+     9	    """Parse CSV text with header date,description,amount,category,tags.
+    10	    tags are separated by ';'. Returns a list of Transaction."""
+    11	    lines = [l for l in text.strip().splitlines() if l.strip()]
+    12	    if not lines:
+    13	        return []
+    14	    header = [h.strip() for h in lines[0].split(",")]
+    15	    if header != HEADER:
+    16	        raise ValueError(f"bad header: {header}")
+    17	    out = []
+    18	    for line in lines[1:]:
+    19	        d, desc, amt, cat, tags = line.split(",")
+    20	        out.append(Transaction(
+    21	            date=date.fromisoformat(d.strip()),
+    22	            description=desc.strip(),
+    23	            amount=Money(amt.strip()),
+    24	            category=cat.strip(),
+    25	            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+    26	        ))
+    27	    return out
+=== ledger/report.py ===
+     1	from .money import Money
+     2	
+     3	
+     4	def monthly_summary(ledger):
+     5	    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+     6	    result = {}
+     7	    for tx in ledger.transactions:
+     8	        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+     9	        if m not in result:
+    10	            result[m] = {}
+    11	        if tx.category not in result[m]:
+    12	            result[m][tx.category] = Money.zero(tx.amount.currency)
+    13	        result[m][tx.category] = result[m][tx.category] + tx.amount
+    14	    return dict(sorted(result.items()))
+    15	
+    16	
+    17	def largest_expenses(ledger, n=3):
+    18	    """Return the n most negative transactions, most negative first."""
+    19	    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    20	    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+=== tests/test_basic.py ===
+     1	from datetime import date
+     2	from ledger import Money, Ledger, Transaction
+     3	from ledger.parser import parse_csv
+     4	from ledger.report import monthly_summary
+     5	
+     6	CSV = """date,description,amount,category,tags
+     7	2026-01-03,Coffee,-4.50,food,morning
+     8	2026-01-15,Salary,3000.00,income,
+     9	2026-02-01,Rent,-1200.00,housing,fixed;monthly
+    10	"""
+    11	
+    12	
+    13	def test_money_add():
+    14	    assert Money("1.10") + Money("2.20") == Money("3.30")
+    15	
+    16	
+    17	def test_parse_and_balance():
+    18	    l = Ledger(parse_csv(CSV))
+    19	    assert len(l.transactions) == 3
+    20	    assert l.balance() == Money("1795.50")
+    21	
+    22	
+    23	def test_query_category():
+    24	    l = Ledger(parse_csv(CSV))
+    25	    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+    26	
+    27	
+    28	def test_summary():
+    29	    s = monthly_summary(Ledger(parse_csv(CSV)))
+    30	    assert list(s) == ["2026-01", "2026-02"]
+    31	    assert s["2026-02"]["housing"] == Money("-1200.00")
+=== README.md ===
+     1	# ledger
+     2	
+     3	A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+     4	reports, and a CLI (`python -m ledger.cli summary file.csv`).
+     5	
+     6	Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat > ledger/money.py <<'EOF'
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class CurrencyMismatch(ValueError):
+    """Raised when an operation mixes two different currencies."""
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def _check_currency(self, other):
+        if self.currency != other.currency:
+            raise CurrencyMismatch(
+                f"cannot combine {self.currency} and {other.currency}"
+            )
+
+    def __add__(self, other):
+        self._check_currency(other)
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        self._check_currency(other)
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        self._check_currency(other)
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+EOF
+cat > ledger/ledger.py <<'EOF'
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        totals = {}
+        for tx in self.transactions:
+            currency = tx.amount.currency
+            if currency not in totals:
+                totals[currency] = Money.zero(currency)
+            totals[currency] = totals[currency] + tx.amount
+        return totals
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+EOF
+cat > ledger/report.py <<'EOF'
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month.
+
+    When a month contains more than one currency, keys are
+    ``(category, currency)`` tuples instead of plain category names.
+    """
+    months = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        months.setdefault(m, []).append(tx)
+
+    result = {}
+    for m, txs in months.items():
+        currencies = {tx.amount.currency for tx in txs}
+        mixed = len(currencies) > 1
+        cats = {}
+        for tx in txs:
+            key = (tx.category, tx.amount.currency) if mixed else tx.category
+            if key not in cats:
+                cats[key] = Money.zero(tx.amount.currency)
+            cats[key] = cats[key] + tx.amount
+        result[m] = cats
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+EOF
+cat > ledger/__init__.py <<'EOF'
+from .money import Money, CurrencyMismatch
+from .ledger import Ledger, Transaction
+EOF
+(no output)
+[0m
+[0m$ [0mcat > ledger/cli.py <<'EOF'
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def _format_key(key):
+    if isinstance(key, tuple):
+        category, currency = key
+        return f"{category} ({currency})"
+    return key
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items(), key=lambda item: str(item[0])):
+                print(f"  {_format_key(cat)}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+EOF
+cat > tests/test_basic.py <<'EOF'
+import pytest
+from datetime import date
+from ledger import Money, Ledger, Transaction, CurrencyMismatch
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_money_currency_mismatch_raises():
+    with pytest.raises(CurrencyMismatch):
+        Money("1.00", "USD") + Money("1.00", "EUR")
+    with pytest.raises(CurrencyMismatch):
+        Money("1.00", "USD") - Money("1.00", "EUR")
+    with pytest.raises(CurrencyMismatch):
+        Money("1.00", "USD") < Money("1.00", "EUR")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == {"USD": Money("1795.50")}
+
+
+def test_empty_balance():
+    assert Ledger().balance() == {}
+
+
+def test_balance_multiple_currencies():
+    l = Ledger([
+        Transaction(date(2026, 1, 1), "a", Money("10.00", "USD"), "misc"),
+        Transaction(date(2026, 1, 2), "b", Money("5.00", "EUR"), "misc"),
+    ])
+    assert l.balance() == {"USD": Money("10.00"), "EUR": Money("5.00")}
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+
+
+def test_summary_mixed_currency_month():
+    l = Ledger([
+        Transaction(date(2026, 1, 1), "a", Money("10.00", "USD"), "food"),
+        Transaction(date(2026, 1, 2), "b", Money("5.00", "EUR"), "food"),
+    ])
+    s = monthly_summary(l)
+    assert s["2026-01"][("food", "USD")] == Money("10.00", "USD")
+    assert s["2026-01"][("food", "EUR")] == Money("5.00", "EUR")
+EOF
+python -m pytest -q
+....F...                                                                 [100%]
+=================================== FAILURES ===================================
+_______________________ test_balance_multiple_currencies _______________________
+
+    def test_balance_multiple_currencies():
+        l = Ledger([
+            Transaction(date(2026, 1, 1), "a", Money("10.00", "USD"), "misc"),
+            Transaction(date(2026, 1, 2), "b", Money("5.00", "EUR"), "misc"),
+        ])
+>       assert l.balance() == {"USD": Money("10.00"), "EUR": Money("5.00")}
+E       AssertionError: assert {'EUR': Money...0.00', 'USD')} == {'EUR': Money...0.00', 'USD')}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'EUR': Money('5.00', 'EUR')} != {'EUR': Money('5.00', 'USD')}
+E         Use -v to get more diff
+
+tests/test_basic.py:42: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_basic.py::test_balance_multiple_currencies - AssertionError...
+1 failed, 7 passed in 2.99s
+[0m
+[0m$ [0msed -i 's/{"USD": Money("10.00"), "EUR": Money("5.00")}/{"USD": Money("10.00", "USD"), "EUR": Money("5.00", "EUR")}/' tests/test_basic.py && python -m pytest -q
+........                                                                 [100%]
+8 passed in 0.22s
+[0m

@@ -1,0 +1,3 @@
+Created `tests/test_report.py` with 25 focused tests covering month grouping/ordering, year separation, sign netting, cent precision, currency, expense filtering, sorting, ties, boundaries, and non-mutation.
+
+`python -m pytest -q` → **25 passed**.

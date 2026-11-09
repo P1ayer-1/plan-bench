@@ -1,0 +1,3 @@
+Implemented `ledger/recurring.py` with `Recurrence`, `occurrences`, and `expand`, plus `Ledger.add_recurring` and package exports. Handles month-end/year-leap logic, count/until/skip limits, and efficiently jumps to the window start.
+
+`python -m pytest -q`: 4 passed.

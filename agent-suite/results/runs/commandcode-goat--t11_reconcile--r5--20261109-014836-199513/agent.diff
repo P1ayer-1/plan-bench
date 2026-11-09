@@ -1,0 +1,233 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..3afc3db
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,162 @@
++from collections import deque
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++class _MinCostMaxFlow:
++    def __init__(self, n):
++        self.n = n
++        self.graph = [[] for _ in range(n)]
++
++    def add_edge(self, u, v, capacity, cost):
++        forward = [v, capacity, cost, len(self.graph[v])]
++        backward = [u, 0, -cost, len(self.graph[u])]
++        self.graph[u].append(forward)
++        self.graph[v].append(backward)
++        return forward
++
++    def run(self, source, sink, max_flow):
++        n = self.n
++        graph = self.graph
++        flow = 0
++        cost = 0
++        infinity = float("inf")
++
++        while flow < max_flow:
++            dist = [infinity] * n
++            in_queue = [False] * n
++            prev_node = [-1] * n
++            prev_edge = [-1] * n
++            dist[source] = 0
++            queue = deque([source])
++            in_queue[source] = True
++
++            while queue:
++                u = queue.popleft()
++                in_queue[u] = False
++                for edge_index, edge in enumerate(graph[u]):
++                    v, capacity, edge_cost, _ = edge
++                    if capacity > 0 and dist[v] > dist[u] + edge_cost:
++                        dist[v] = dist[u] + edge_cost
++                        prev_node[v] = u
++                        prev_edge[v] = edge_index
++                        if not in_queue[v]:
++                            queue.append(v)
++                            in_queue[v] = True
++
++            if prev_node[sink] == -1:
++                break
++
++            pushed = max_flow - flow
++            v = sink
++            while v != source:
++                u = prev_node[v]
++                edge = graph[u][prev_edge[v]]
++                pushed = min(pushed, edge[1])
++                v = u
++
++            v = sink
++            while v != source:
++                u = prev_node[v]
++                edge = graph[u][prev_edge[v]]
++                edge[1] -= pushed
++                graph[v][edge[3]][1] += pushed
++                v = u
++
++            flow += pushed
++            cost += pushed * dist[sink]
++
++        return flow, cost
++
++
++def _match_group(ledger_txs, bank_txs, ledger_indices, bank_indices, max_days, pairs):
++    if not ledger_indices or not bank_indices:
++        return
++
++    ledger_count = len(ledger_indices)
++    bank_count = len(bank_indices)
++    source = 0
++    ledger_offset = 1
++    bank_offset = ledger_offset + ledger_count
++    sink = bank_offset + bank_count
++
++    network = _MinCostMaxFlow(sink + 1)
++    for local_ledger in range(ledger_count):
++        network.add_edge(source, ledger_offset + local_ledger, 1, 0)
++    for local_bank in range(bank_count):
++        network.add_edge(bank_offset + local_bank, sink, 1, 0)
++
++    candidate_edges = []
++    for local_ledger, ledger_index in enumerate(ledger_indices):
++        ledger_date = ledger_txs[ledger_index].date
++        for local_bank, bank_index in enumerate(bank_indices):
++            distance = abs((ledger_date - bank_txs[bank_index].date).days)
++            if distance <= max_days:
++                edge = network.add_edge(
++                    ledger_offset + local_ledger,
++                    bank_offset + local_bank,
++                    1,
++                    distance,
++                )
++                candidate_edges.append((ledger_index, bank_index, edge))
++
++    network.run(source, sink, min(ledger_count, bank_count))
++
++    for ledger_index, bank_index, edge in candidate_edges:
++        if edge[1] == 0:
++            pairs[ledger_index] = bank_index
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Pair ledger and bank transactions by equal amount and nearby date.
++
++    Maximises the number of pairs, then minimises the total number of days
++    between paired dates.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    ledger_groups = {}
++    bank_groups = {}
++    for index, transaction in enumerate(ledger_txs):
++        ledger_groups.setdefault(transaction.amount, []).append(index)
++    for index, transaction in enumerate(bank_txs):
++        bank_groups.setdefault(transaction.amount, []).append(index)
++
++    pairs = {}
++    for amount, ledger_indices in ledger_groups.items():
++        bank_indices = bank_groups.get(amount)
++        if bank_indices:
++            _match_group(
++                ledger_txs,
++                bank_txs,
++                ledger_indices,
++                bank_indices,
++                max_days,
++                pairs,
++            )
++
++    matched = [(ledger_txs[i], bank_txs[pairs[i]]) for i in sorted(pairs)]
++    matched_bank = set(pairs.values())
++    unmatched_ledger = [
++        transaction
++        for index, transaction in enumerate(ledger_txs)
++        if index not in pairs
++    ]
++    unmatched_bank = [
++        transaction
++        for index, transaction in enumerate(bank_txs)
++        if index not in matched_bank
++    ]
++
++    return Reconciliation(
++        matched=matched,
++        unmatched_ledger=unmatched_ledger,
++        unmatched_bank=unmatched_bank,
++    )
+diff --git a/tests/test_reconcile.py b/tests/test_reconcile.py
+new file mode 100644
+index 0000000..f6c5a92
+--- /dev/null
++++ b/tests/test_reconcile.py
+@@ -0,0 +1,59 @@
++from datetime import date, timedelta
++
++from ledger.ledger import Transaction
++from ledger.money import Money
++from ledger.reconcile import Reconciliation, reconcile
++
++
++def tx(day, amount, description="x"):
++    return Transaction(date(2026, 1, 1) + timedelta(days=day), description, Money(amount), "test")
++
++
++def test_reconcile_matches_by_amount_and_nearby_date():
++    ledger_txs = [tx(0, "10"), tx(30, "20"), tx(40, "10")]
++    bank_txs = [tx(2, "10"), tx(31, "20")]
++
++    result = reconcile(ledger_txs, bank_txs)
++
++    assert isinstance(result, Reconciliation)
++    assert result.matched == [(ledger_txs[0], bank_txs[0]), (ledger_txs[1], bank_txs[1])]
++    assert result.unmatched_ledger == [ledger_txs[2]]
++    assert result.unmatched_bank == []
++
++
++def test_reconcile_prefers_maximum_pairs_then_minimum_distance():
++    ledger_txs = [tx(0, "10"), tx(5, "10")]
++    bank_txs = [tx(1, "10"), tx(4, "10")]
++
++    result = reconcile(ledger_txs, bank_txs, max_days=10)
++
++    assert len(result.matched) == 2
++    assert sum(abs((a.date - b.date).days) for a, b in result.matched) == 2
++
++
++def test_reconcile_treats_duplicates_as_separate_transactions():
++    ledger_txs = [tx(0, "10", "same"), tx(0, "10", "same")]
++    bank_txs = [tx(0, "10", "same")]
++
++    result = reconcile(ledger_txs, bank_txs)
++
++    assert len(result.matched) == 1
++    assert result.unmatched_ledger == [ledger_txs[1]]
++    assert result.unmatched_bank == []
++
++
++def test_reconcile_respects_currency_and_date_window():
++    ledger_txs = [tx(0, "10")]
++    bank_txs = [Transaction(date(2026, 1, 2), "x", Money("10", "EUR"), "test"), tx(4, "10")]
++
++    result = reconcile(ledger_txs, bank_txs, max_days=3)
++
++    assert result.matched == []
++    assert result.unmatched_ledger == ledger_txs
++    assert result.unmatched_bank == bank_txs
++
++
++def test_reconcile_empty_inputs():
++    result = reconcile([], [])
++
++    assert result == Reconciliation([], [], [])

@@ -1,0 +1,6 @@
+I'll start by exploring the codebase to understand the code I need to test.
+Now I'll write a thorough test file covering grouping, ordering, boundaries, signs, currency, ties, limits, and non-mutation.
+Two of my own assertions were wrong (mixed-currency grouping and the selected index). Fixing them:
+Created `tests/test_report.py` with 26 tests covering month/category grouping, month sorting and boundaries, sign handling, currency, non-mutation, expense filtering, sorting, ties, limits, precision, and empty ledgers.
+
+`python -m pytest -q` → **26 passed**. No `ledger/` code changed.

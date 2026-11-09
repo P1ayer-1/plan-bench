@@ -1,0 +1,96 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m→ [0mRead ledger/report.py
+[0m
+[0m$ [0mfind . -maxdepth 3 -type f -not -path '*/.git/*' | sort
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead ledger/cli.py
+[0m
+[0m← [0mEdit ledger/report.py
+Index: /suite/results/runs/deepinfra-reasoning--t04_refactor_report--r3--20261109-005812-124552/ws/ledger/report.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t04_refactor_report--r3--20261109-005812-124552/ws/ledger/report.py
++++ /suite/results/runs/deepinfra-reasoning--t04_refactor_report--r3--20261109-005812-124552/ws/ledger/report.py
+@@ -1,20 +1,53 @@
+ from .money import Money
+ 
+ 
+-def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++def group_by_month(transactions):
++    """Group transactions by "YYYY-MM", preserving order within each month."""
+     result = {}
+-    for tx in ledger.transactions:
++    for tx in transactions:
+         m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++        result.setdefault(m, []).append(tx)
+     return dict(sorted(result.items()))
+ 
+ 
++def totals_by_category(transactions):
++    """Return {category: Money} with amounts summed per category."""
++    result = {}
++    for tx in transactions:
++        if tx.category not in result:
++            result[tx.category] = Money.zero(tx.amount.currency)
++        result[tx.category] = result[tx.category] + tx.amount
++    return result
++
++
++def monthly_summary(ledger):
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++    result = {}
++    for month, transactions in group_by_month(ledger.transactions).items():
++        result[month] = totals_by_category(transactions)
++    return result
++
++
++def category_share(ledger, month):
++    """Return {category: fraction} of the month's total spending."""
++    transactions = group_by_month(ledger.transactions).get(month, [])
++    spending = {}
++    total = Money.zero()
++    for tx in transactions:
++        if tx.amount.amount < 0:
++            spending[tx.category] = spending.get(tx.category, Money.zero(tx.amount.currency)) + tx.amount
++            total = total + tx.amount
++    if total.amount == 0:
++        return {}
++    total_spent = abs(total.amount)
++    return {
++        category: float(abs(amount.amount) / total_spent)
++        for category, amount in spending.items()
++        if amount.amount != 0
++    }
++
++
+ def largest_expenses(ledger, n=3):
+     """Return the n most negative transactions, most negative first."""
+     expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+     return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 5.01s
+[0m
+[0m→ [0mRead ledger/report.py

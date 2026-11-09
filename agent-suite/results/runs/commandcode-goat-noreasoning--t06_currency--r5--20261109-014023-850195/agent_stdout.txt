@@ -1,0 +1,6 @@
+Done. All 7 tests pass.
+
+- `CurrencyMismatch` added in `ledger/money.py`, raised by `+`, `-`, and `<` on mismatched currencies.
+- `Ledger.balance()` now returns `{currency: Money}` (`{}` when empty).
+- `monthly_summary` uses `(category, currency)` keys only for months with multiple currencies; single-currency months keep plain keys.
+- CLI sorting handles tuple keys; tests updated and extended.

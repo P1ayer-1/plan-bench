@@ -1,0 +1,2 @@
+Test string in my ad-hoc check was malformed (unescaped `"hi"` breaks CSV). Let me verify properly.
+Fixed `ledger/parser.py` to use the `csv` module (handles quoted commas, `""` escapes, and `\r\n`), tolerates a missing `tags` column, and raises `ValueError` with the 1-based line number for wrong field counts. All 4 tests pass.

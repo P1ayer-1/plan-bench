@@ -1,0 +1,304 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && cat ledger/report.py && ls tests 2>/dev/null
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:24 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:24 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 659 Nov  9 00:24 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+test_basic.py
+[0m
+[0m$ [0mcat ledger/*.py | head -200; echo ===; cat tests/test_basic.py; echo ===; cat README.md; ls ledger
+from .money import Money
+from .ledger import Ledger, Transaction
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+===
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+===
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+......................................F.                                 [100%]
+=================================== FAILURES ===================================
+______ TestLargestExpenses.test_ordering_parametrized[amounts2-expected2] ______
+
+self = <test_report.TestLargestExpenses object at 0x70311f069750>
+amounts = ['-2.00', '-2.00'], expected = ['-2.00']
+
+    @pytest.mark.parametrize("amounts,expected", [
+        (["-1.00", "-2.00", "-3.00", "-4.00"], ["-4.00", "-3.00"]),
+        (["-4.00", "-1.00", "-3.00", "-2.00"], ["-4.00", "-3.00"]),
+        (["-2.00", "-2.00"], ["-2.00"]),
+    ])
+    def test_ordering_parametrized(self, amounts, expected):
+        ledger = Ledger([tx(2026, 1, i + 1, a) for i, a in enumerate(amounts)])
+        result = largest_expenses(ledger, n=2)
+>       assert [t.amount for t in result] == [Money(e) for e in expected]
+E       AssertionError: assert [Money('-2.00...2.00', 'USD')] == [Money('-2.00', 'USD')]
+E         
+E         Left contains one more item: Money('-2.00', 'USD')
+E         Use -v to get more diff
+
+tests/test_report.py:234: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_report.py::TestLargestExpenses::test_ordering_parametrized[amounts2-expected2]
+1 failed, 39 passed in 0.81s
+[0m
+[0m← [0mEdit tests/test_report.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t05_write_tests--r1--20261109-002412-818002/ws/tests/test_report.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t05_write_tests--r1--20261109-002412-818002/ws/tests/test_report.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t05_write_tests--r1--20261109-002412-818002/ws/tests/test_report.py
+@@ -225,9 +225,9 @@
+ 
+ @pytest.mark.parametrize("amounts,expected", [
+     (["-1.00", "-2.00", "-3.00", "-4.00"], ["-4.00", "-3.00"]),
+     (["-4.00", "-1.00", "-3.00", "-2.00"], ["-4.00", "-3.00"]),
+-    (["-2.00", "-2.00"], ["-2.00"]),
++    (["-2.00", "-2.00"], ["-2.00", "-2.00"]),
+ ])
+ def test_ordering_parametrized(self, amounts, expected):
+     ledger = Ledger([tx(2026, 1, i + 1, a) for i, a in enumerate(amounts)])
+     result = largest_expenses(ledger, n=2)
+
+[0m
+[0m$ [0mpython -m pytest -q
+........................................                                 [100%]
+40 passed in 5.82s
+[0m

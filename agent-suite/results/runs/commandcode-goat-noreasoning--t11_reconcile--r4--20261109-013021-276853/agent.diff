@@ -1,0 +1,265 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..4e39ff4
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,178 @@
++from dataclasses import dataclass, field
++from typing import List, Tuple
++
++
++@dataclass
++class Reconciliation:
++    matched: List[Tuple[object, object]] = field(default_factory=list)
++    unmatched_ledger: List[object] = field(default_factory=list)
++    unmatched_bank: List[object] = field(default_factory=list)
++
++
++def _days_between(a, b):
++    return abs((a - b).days)
++
++
++def _min_cost_assignment(cost):
++    """Minimum-cost rectangular assignment via the Hungarian algorithm.
++
++    ``cost`` is an n x m matrix of integers. Returns a list of (row, col)
++    pairs covering min(n, m) rows/columns with minimum total cost.
++    """
++    n = len(cost)
++    if n == 0:
++        return []
++    m = len(cost[0])
++    if m == 0:
++        return []
++
++    transposed = False
++    if n > m:
++        cost = [[cost[i][j] for i in range(n)] for j in range(m)]
++        n, m = m, n
++        transposed = True
++
++    INF = float("inf")
++    u = [0] * (n + 1)
++    v = [0] * (m + 1)
++    p = [0] * (m + 1)
++    way = [0] * (m + 1)
++    for i in range(1, n + 1):
++        p[0] = i
++        j0 = 0
++        minv = [INF] * (m + 1)
++        used = [False] * (m + 1)
++        while True:
++            used[j0] = True
++            i0 = p[j0]
++            delta = INF
++            j1 = 0
++            row = cost[i0 - 1]
++            ui = u[i0]
++            for j in range(1, m + 1):
++                if not used[j]:
++                    cur = row[j - 1] - ui - v[j]
++                    if cur < minv[j]:
++                        minv[j] = cur
++                        way[j] = j0
++                    if minv[j] < delta:
++                        delta = minv[j]
++                        j1 = j
++            for j in range(m + 1):
++                if used[j]:
++                    u[p[j]] += delta
++                    v[j] -= delta
++                else:
++                    minv[j] -= delta
++            j0 = j1
++            if p[j0] == 0:
++                break
++        while True:
++            j1 = way[j0]
++            p[j0] = p[j1]
++            j0 = j1
++            if j0 == 0:
++                break
++
++    result = []
++    for j in range(1, m + 1):
++        if p[j] != 0:
++            row = p[j] - 1
++            col = j - 1
++            if transposed:
++                result.append((col, row))
++            else:
++                result.append((row, col))
++    result.sort()
++    return result
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    bank_by_amount = {}
++    for j, btx in enumerate(bank_txs):
++        bank_by_amount.setdefault(btx.amount, []).append(j)
++
++    ledger_groups = {}
++    for i, ltx in enumerate(ledger_txs):
++        cand = bank_by_amount.get(ltx.amount)
++        if not cand:
++            continue
++        feasible = []
++        for j in cand:
++            d = _days_between(ltx.date, bank_txs[j].date)
++            if d <= max_days:
++                feasible.append((j, d))
++        if feasible:
++            ledger_groups[i] = feasible
++
++    group_items = sorted(ledger_groups.items())
++
++    parent = {}
++
++    def find(x):
++        while parent[x] != x:
++            parent[x] = parent[parent[x]]
++            x = parent[x]
++        return x
++
++    def union(a, b):
++        ra, rb = find(a), find(b)
++        if ra != rb:
++            parent[rb] = ra
++
++    for li, feasible in group_items:
++        parent.setdefault(("l", li), ("l", li))
++        for j, _ in feasible:
++            parent.setdefault(("b", j), ("b", j))
++            union(("l", li), ("b", j))
++
++    components = {}
++    for li, feasible in group_items:
++        root = find(("l", li))
++        components.setdefault(root, []).append((li, feasible))
++
++    matched_pairs = []
++
++    for root in sorted(components):
++        rows = []
++        row_feas = []
++        cand_bank = set()
++        for li, feasible in components[root]:
++            rows.append(li)
++            row_feas.append(feasible)
++            cand_bank.update(j for j, _ in feasible)
++
++        paired_items = sorted(zip(rows, row_feas), key=lambda it: it[0])
++        rows = [it[0] for it in paired_items]
++        row_feas = [it[1] for it in paired_items]
++        cols = sorted(cand_bank)
++        col_index = {j: k for k, j in enumerate(cols)}
++        n, m = len(rows), len(cols)
++
++        BIG = 10 ** 9
++        if n <= m:
++            cost = [[BIG] * m for _ in range(n)]
++            for r, feas in enumerate(row_feas):
++                for j, d in feas:
++                    cost[r][col_index[j]] = d
++            assign = _min_cost_assignment(cost)
++        else:
++            cost = [[BIG] * n for _ in range(m)]
++            for r, feas in enumerate(row_feas):
++                for j, d in feas:
++                    cost[col_index[j]][r] = d
++            assign = [(r, c) for c, r in _min_cost_assignment(cost)]
++
++        for r, c in assign:
++            matched_pairs.append((rows[r], cols[c]))
++
++    matched_pairs.sort()
++    matched = [(ledger_txs[i], bank_txs[j]) for i, j in matched_pairs]
++    matched_ledger = {i for i, _ in matched_pairs}
++    matched_bank = {j for _, j in matched_pairs}
++    unmatched_ledger = [tx for i, tx in enumerate(ledger_txs) if i not in matched_ledger]
++    unmatched_bank = [tx for j, tx in enumerate(bank_txs) if j not in matched_bank]
++    return Reconciliation(matched, unmatched_ledger, unmatched_bank)
+diff --git a/tests/test_reconcile.py b/tests/test_reconcile.py
+new file mode 100644
+index 0000000..b8456a2
+--- /dev/null
++++ b/tests/test_reconcile.py
+@@ -0,0 +1,75 @@
++from datetime import date, timedelta
++
++from ledger import Money, Transaction
++from ledger.reconcile import Reconciliation, reconcile
++
++
++def tx(day, amount, desc="x", currency="USD"):
++    return Transaction(
++        date=date(2026, 1, 1) + timedelta(days=day),
++        description=desc,
++        amount=Money(amount, currency),
++        category="c",
++    )
++
++
++def test_simple_match():
++    l = tx(0, "5.00")
++    b = tx(1, "5.00")
++    r = reconcile([l], [b], max_days=3)
++    assert isinstance(r, Reconciliation)
++    assert r.matched == [(l, b)]
++    assert r.unmatched_ledger == []
++    assert r.unmatched_bank == []
++
++
++def test_beyond_max_days_not_matched():
++    l = tx(0, "5.00")
++    b = tx(4, "5.00")
++    r = reconcile([l], [b], max_days=3)
++    assert r.matched == []
++    assert r.unmatched_ledger == [l]
++    assert r.unmatched_bank == [b]
++
++
++def test_amount_and_currency_must_match():
++    l = tx(0, "5.00")
++    r = reconcile([l], [tx(0, "5.01")], 3)
++    assert r.matched == []
++    r = reconcile([l], [tx(0, "5.00", currency="EUR")], 3)
++    assert r.matched == []
++
++
++def test_borrows_other_amount_and_leaves_unmatched():
++    l = [tx(0, "5.00"), tx(1, "7.00")]
++    b = [tx(0, "5.00")]
++    r = reconcile(l, b, 3)
++    assert r.matched == [(l[0], b[0])]
++    assert r.unmatched_ledger == [l[1]]
++    assert r.unmatched_bank == []
++
++
++def test_duplicates_are_distinct_and_best_distance_chosen():
++    l = [tx(0, "5.00"), tx(3, "5.00")]
++    b = [tx(2, "5.00")]
++    r = reconcile(l, b, 3)
++    assert r.matched == [(l[1], b[0])]
++    assert r.unmatched_ledger == [l[0]]
++
++
++def test_matched_ordered_by_ledger_and_unmatched_by_input():
++    l = [tx(10, "1.00"), tx(0, "2.00"), tx(20, "3.00")]
++    b = [tx(1, "2.00"), tx(11, "1.00"), tx(30, "4.00")]
++    r = reconcile(l, b, 3)
++    assert r.matched == [(l[0], b[1]), (l[1], b[0])]
++    assert r.unmatched_ledger == [l[2]]
++    assert r.unmatched_bank == [b[2]]
++
++
++def test_maximizes_cardinality_then_minimizes_distance():
++    l = [tx(0, "5.00"), tx(2, "5.00")]
++    b = [tx(1, "5.00"), tx(3, "5.00")]
++    r = reconcile(l, b, 3)
++    assert len(r.matched) == 2
++    total = sum(abs((a.date - c.date).days) for a, c in r.matched)
++    assert total == 2

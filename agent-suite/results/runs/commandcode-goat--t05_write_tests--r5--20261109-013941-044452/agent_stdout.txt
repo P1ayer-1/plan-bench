@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 29 tests covering month grouping, zero-padded/sorted keys, year boundaries, category separation, sign/cancellation, currency, decimal precision, mutation safety, expense ordering, exclusions (zero/income), `n` edge cases, ties, and return types. All 29 pass.

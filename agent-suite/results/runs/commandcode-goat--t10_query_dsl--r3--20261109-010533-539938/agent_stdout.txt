@@ -1,0 +1,8 @@
+Implemented `Ledger.search(query)` with a full parser in `ledger/query.py`:
+
+- Field terms, amount/date comparisons, quoted values, escapes
+- `AND` / `OR` / `NOT`, parentheses, implicit `AND`, correct precedence
+- Empty queries match all; malformed queries raise `ValueError`
+- Results preserve original transaction order
+
+`python -m pytest -q` passes (4 tests).

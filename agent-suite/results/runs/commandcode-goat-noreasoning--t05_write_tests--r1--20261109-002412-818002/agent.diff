@@ -1,0 +1,244 @@
+diff --git a/tests/test_report.py b/tests/test_report.py
+new file mode 100644
+index 0000000..f1ccd07
+--- /dev/null
++++ b/tests/test_report.py
+@@ -0,0 +1,238 @@
++from datetime import date
++
++import pytest
++
++from ledger.ledger import Ledger, Transaction
++from ledger.money import Money
++from ledger.report import largest_expenses, monthly_summary
++
++
++def tx(year, month, day, amount, category="general", description="tx"):
++    return Transaction(
++        date=date(year, month, day),
++        description=description,
++        amount=Money(amount),
++        category=category,
++    )
++
++
++class TestMonthlySummary:
++    def test_empty_ledger(self):
++        assert monthly_summary(Ledger([])) == {}
++
++    def test_single_transaction(self):
++        s = monthly_summary(Ledger([tx(2026, 1, 3, "-4.50", "food")]))
++        assert s == {"2026-01": {"food": Money("-4.50")}}
++
++    def test_groups_by_month(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "10.00", "food"),
++            tx(2026, 1, 31, "5.00", "food"),
++            tx(2026, 2, 1, "7.00", "food"),
++        ])
++        s = monthly_summary(ledger)
++        assert list(s) == ["2026-01", "2026-02"]
++        assert s["2026-01"]["food"] == Money("15.00")
++        assert s["2026-02"]["food"] == Money("7.00")
++
++    def test_groups_by_category_within_month(self):
++        ledger = Ledger([
++            tx(2026, 3, 1, "10.00", "food"),
++            tx(2026, 3, 2, "20.00", "housing"),
++            tx(2026, 3, 3, "-4.00", "food"),
++        ])
++        s = monthly_summary(ledger)
++        assert s["2026-03"] == {
++            "food": Money("6.00"),
++            "housing": Money("20.00"),
++        }
++
++    def test_negative_and_positive_cancel(self):
++        ledger = Ledger([
++            tx(2026, 5, 1, "100.00", "misc"),
++            tx(2026, 5, 2, "-40.00", "misc"),
++            tx(2026, 5, 3, "-60.00", "misc"),
++        ])
++        assert monthly_summary(ledger)["2026-05"]["misc"] == Money("0.00")
++
++    def test_preserves_negative_sign(self):
++        ledger = Ledger([
++            tx(2026, 6, 1, "-10.00", "food"),
++            tx(2026, 6, 2, "-5.50", "food"),
++        ])
++        assert monthly_summary(ledger)["2026-06"]["food"] == Money("-15.50")
++
++    def test_month_keys_sorted_chronologically(self):
++        ledger = Ledger([
++            tx(2026, 12, 1, "1.00", "a"),
++            tx(2025, 6, 1, "2.00", "a"),
++            tx(2026, 1, 1, "3.00", "a"),
++            tx(2025, 12, 1, "4.00", "a"),
++        ])
++        keys = list(monthly_summary(ledger))
++        assert keys == ["2025-06", "2025-12", "2026-01", "2026-12"]
++
++    def test_month_zero_padding(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "1.00"),
++            tx(2026, 9, 1, "1.00"),
++            tx(2026, 10, 1, "1.00"),
++        ])
++        assert list(monthly_summary(ledger)) == ["2026-01", "2026-09", "2026-10"]
++
++    def test_year_zero_padded(self):
++        ledger = Ledger([tx(999, 1, 1, "1.00")])
++        assert list(monthly_summary(ledger)) == ["0999-01"]
++
++    def test_multiple_years_same_month_not_merged(self):
++        ledger = Ledger([
++            tx(2025, 3, 15, "10.00", "food"),
++            tx(2026, 3, 15, "20.00", "food"),
++        ])
++        s = monthly_summary(ledger)
++        assert s["2025-03"]["food"] == Money("10.00")
++        assert s["2026-03"]["food"] == Money("20.00")
++
++    def test_does_not_mutate_ledger(self):
++        original = [tx(2026, 1, 1, "1.00", "a"), tx(2026, 1, 2, "2.00", "a")]
++        ledger = Ledger(original)
++        before = list(ledger.transactions)
++        monthly_summary(ledger)
++        assert ledger.transactions == before
++        assert ledger.transactions is not original
++
++    def test_empty_month_absent(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "1.00", "a"),
++            tx(2026, 4, 1, "1.00", "a"),
++        ])
++        assert set(monthly_summary(ledger)) == {"2026-01", "2026-04"}
++
++    def test_decimal_cent_accuracy(self):
++        ledger = Ledger([
++            tx(2026, 7, 1, "0.10", "a"),
++            tx(2026, 7, 2, "0.20", "a"),
++        ])
++        assert monthly_summary(ledger)["2026-07"]["a"] == Money("0.30")
++
++    def test_returns_plain_dict(self):
++        s = monthly_summary(Ledger([tx(2026, 1, 1, "1.00")]))
++        assert type(s) is dict
++        assert type(s["2026-01"]) is dict
++
++    @pytest.mark.parametrize("amounts,expected", [
++        (["-1.00", "-2.00", "-3.00"], "-6.00"),
++        (["5.00"], "5.00"),
++        (["-0.01"], "-0.01"),
++        (["1000.00", "-1000.00"], "0.00"),
++    ])
++    def test_sum_amounts_parametrized(self, amounts, expected):
++        ledger = Ledger([tx(2026, 2, i + 1, a, "c") for i, a in enumerate(amounts)])
++        assert monthly_summary(ledger)["2026-02"]["c"] == Money(expected)
++
++
++class TestLargestExpenses:
++    def test_empty_ledger(self):
++        assert largest_expenses(Ledger([])) == []
++
++    def test_only_income_returns_empty(self):
++        ledger = Ledger([tx(2026, 1, 1, "10.00"), tx(2026, 1, 2, "20.00")])
++        assert largest_expenses(ledger) == []
++
++    def test_excludes_positive_and_zero(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "-5.00"),
++            tx(2026, 1, 2, "10.00"),
++            tx(2026, 1, 3, "0.00"),
++            tx(2026, 1, 4, "-3.00"),
++        ])
++        result = largest_expenses(ledger, n=10)
++        assert [t.amount for t in result] == [Money("-5.00"), Money("-3.00")]
++
++    def test_most_negative_first(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "-3.00"),
++            tx(2026, 1, 2, "-100.00"),
++            tx(2026, 1, 3, "-20.00"),
++        ])
++        result = largest_expenses(ledger)
++        assert [t.amount.amount for t in result] == [
++            Money("-100.00").amount,
++            Money("-20.00").amount,
++            Money("-3.00").amount,
++        ]
++
++    def test_default_n_is_three(self):
++        ledger = Ledger([tx(2026, 1, i + 1, f"-{i + 1}.00") for i in range(10)])
++        assert len(largest_expenses(ledger)) == 3
++        assert [t.amount for t in largest_expenses(ledger)] == [
++            Money("-10.00"), Money("-9.00"), Money("-8.00")
++        ]
++
++    def test_n_smaller_than_count(self):
++        ledger = Ledger([tx(2026, 1, i + 1, f"-{i + 1}.00") for i in range(5)])
++        result = largest_expenses(ledger, n=2)
++        assert [t.amount for t in result] == [Money("-5.00"), Money("-4.00")]
++
++    def test_n_larger_than_count(self):
++        ledger = Ledger([tx(2026, 1, 1, "-1.00"), tx(2026, 1, 2, "-2.00")])
++        assert len(largest_expenses(ledger, n=10)) == 2
++
++    def test_n_zero(self):
++        ledger = Ledger([tx(2026, 1, 1, "-1.00")])
++        assert largest_expenses(ledger, n=0) == []
++
++    def test_negative_n(self):
++        ledger = Ledger([tx(2026, 1, 1, "-1.00"), tx(2026, 1, 2, "-2.00")])
++        assert largest_expenses(ledger, n=-1) == [tx(2026, 1, 2, "-2.00")]
++
++    def test_n_equal_count(self):
++        ledger = Ledger([tx(2026, 1, 1, "-1.00"), tx(2026, 1, 2, "-2.00")])
++        result = largest_expenses(ledger, n=2)
++        assert [t.amount for t in result] == [Money("-2.00"), Money("-1.00")]
++
++    def test_returns_transactions_not_amounts(self):
++        ledger = Ledger([tx(2026, 1, 1, "-1.00", description="rent")])
++        result = largest_expenses(ledger)
++        assert isinstance(result[0], Transaction)
++        assert result[0].description == "rent"
++
++    def test_across_months_and_categories(self):
++        ledger = Ledger([
++            tx(2025, 12, 31, "-50.00", "travel"),
++            tx(2026, 1, 1, "-200.00", "housing"),
++            tx(2026, 2, 1, "-10.00", "food"),
++        ])
++        result = largest_expenses(ledger, n=2)
++        assert [t.category for t in result] == ["housing", "travel"]
++
++    def test_does_not_mutate_ledger(self):
++        txs = [tx(2026, 1, 1, "-1.00"), tx(2026, 1, 2, "-5.00")]
++        ledger = Ledger(txs)
++        before = list(ledger.transactions)
++        largest_expenses(ledger)
++        assert ledger.transactions == before
++
++    def test_ties_keep_all_within_n(self):
++        ledger = Ledger([
++            tx(2026, 1, 1, "-5.00", description="a"),
++            tx(2026, 1, 2, "-5.00", description="b"),
++            tx(2026, 1, 3, "-1.00"),
++        ])
++        result = largest_expenses(ledger, n=2)
++        assert len(result) == 2
++        assert all(t.amount == Money("-5.00") for t in result)
++
++    @pytest.mark.parametrize("amounts,expected", [
++        (["-1.00", "-2.00", "-3.00", "-4.00"], ["-4.00", "-3.00"]),
++        (["-4.00", "-1.00", "-3.00", "-2.00"], ["-4.00", "-3.00"]),
++        (["-2.00", "-2.00"], ["-2.00", "-2.00"]),
++    ])
++    def test_ordering_parametrized(self, amounts, expected):
++        ledger = Ledger([tx(2026, 1, i + 1, a) for i, a in enumerate(amounts)])
++        result = largest_expenses(ledger, n=2)
++        assert [t.amount for t in result] == [Money(e) for e in expected]
++
++    def test_single_cent_expense(self):
++        ledger = Ledger([tx(2026, 1, 1, "-0.01"), tx(2026, 1, 2, "5.00")])
++        assert largest_expenses(ledger) == [tx(2026, 1, 1, "-0.01")]

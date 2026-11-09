@@ -1,0 +1,66 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls && git status && grep -rn "def split" . --include=*.py
+README.md
+ledger
+opencode.json
+tests
+On branch master
+nothing to commit, working tree clean
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m$ [0mls tests && grep -rn "split" tests README.md
+test_basic.py
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261109-003856-227278/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261109-003856-227278/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261109-003856-227278/ws/ledger/money.py
+@@ -37,11 +37,19 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts whose sum equals the original amount."""
++    if n <= 0:
++        raise ValueError("n must be greater than zero")
++    total_cents = int(self.amount / CENT)
++    base, remainder = divmod(abs(total_cents), n)
++    sign = -1 if total_cents < 0 else 1
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < remainder else 0)
++        parts.append(Money(sign * cents * CENT, self.currency))
++    return parts
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger.money import Money
+for s in ['10.00','-10.00','0.01','0.05']:
+    print(s, Money(s).split(3))
+print(sum((m.amount for m in Money('10.00').split(3)), Money.zero().amount))
+for n in (0,-1):
+    try: Money('1').split(n)
+    except ValueError as e: print('ValueError', n, e)
+"
+....                                                                     [100%]
+4 passed in 6.40s
+10.00 [Money('3.34', 'USD'), Money('3.33', 'USD'), Money('3.33', 'USD')]
+-10.00 [Money('-3.34', 'USD'), Money('-3.33', 'USD'), Money('-3.33', 'USD')]
+0.01 [Money('0.01', 'USD'), Money('0.00', 'USD'), Money('0.00', 'USD')]
+0.05 [Money('0.02', 'USD'), Money('0.02', 'USD'), Money('0.01', 'USD')]
+10.00
+ValueError 0 n must be greater than zero
+ValueError -1 n must be greater than zero
+[0m

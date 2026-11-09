@@ -1,0 +1,1 @@
+Fixed `Money.split` in ledger/money.py:44 to distribute cents exactly, giving extras to earliest parts, handling negatives sign-symmetrically, and raising `ValueError` for `n <= 0`. All 4 tests pass.

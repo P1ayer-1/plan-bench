@@ -1,0 +1,57 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -name "*.py" -not -path "./.git/*" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 01:44 ..
+drwxrwxrwx 1 root root 512 Nov  9 01:44 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 659 Nov  9 01:44 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r5--20261109-014401-932527/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r5--20261109-014401-932527/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t08_dedupe_perf--r5--20261109-014401-932527/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+import time,random
+from datetime import date,timedelta
+from ledger import Money,Ledger,Transaction
+base=date(2026,1,1)
+txs=[Transaction(base+timedelta(days=random.randrange(1000)),f'd{random.randrange(500)}',Money(random.randrange(100)),'c') for _ in range(200000)]
+t=time.time();L=Ledger(txs).dedupe();print(len(L.transactions),time.time()-t)"
+....                                                                     [100%]
+4 passed in 3.02s
+199573 0.513704776763916
+[0m

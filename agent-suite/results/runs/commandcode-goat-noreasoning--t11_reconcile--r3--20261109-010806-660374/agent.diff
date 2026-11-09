@@ -1,0 +1,138 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..a47eba2
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,132 @@
++from dataclasses import dataclass, field
++from collections import deque
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _min_cost_max_matching(adjacency):
++    """Max-cardinality, min-total-weight matching on a bipartite graph.
++
++    adjacency[left] is a list of (right, weight) pairs. Returns a list of
++    (left, right) pairs. Successive shortest augmenting paths over the
++    alternating residual graph (SPFA), which yields a maximum-cardinality
++    matching of minimum total weight.
++    """
++    n_left = len(adjacency)
++    right_ids = sorted({r for edges in adjacency for r, _ in edges})
++    if n_left == 0 or not right_ids:
++        return []
++    r_index = {r: i for i, r in enumerate(right_ids)}
++    n_right = len(right_ids)
++
++    edges = [[(r_index[r], w) for r, w in adj] for adj in adjacency]
++    match_l = [-1] * n_left
++    match_r = [-1] * n_right
++    INF = float("inf")
++
++    while True:
++        dist_l = [INF] * n_left
++        dist_r = [INF] * n_right
++        prev_l = [-1] * n_left
++        prev_r = [-1] * n_right
++        inq_r = [False] * n_right
++
++        q = deque()
++        for i in range(n_left):
++            if match_l[i] == -1:
++                dist_l[i] = 0
++
++        for i in range(n_left):
++            if match_l[i] == -1:
++                for j, w in edges[i]:
++                    if w < dist_r[j]:
++                        dist_r[j] = w
++                        prev_r[j] = i
++                        if not inq_r[j]:
++                            q.append(j)
++                            inq_r[j] = True
++
++        while q:
++            j = q.popleft()
++            inq_r[j] = False
++            k = match_r[j]
++            if k == -1:
++                continue
++            for jj, w in edges[k]:
++                if jj == j:
++                    continue
++                nd = dist_r[j] + w
++                if nd < dist_r[jj]:
++                    dist_r[jj] = nd
++                    prev_r[jj] = k
++                    if not inq_r[jj]:
++                        q.append(jj)
++                        inq_r[jj] = True
++
++        best = -1
++        bd = INF
++        for j in range(n_right):
++            if match_r[j] == -1 and dist_r[j] < bd:
++                bd = dist_r[j]
++                best = j
++        if best == -1:
++            break
++
++        j = best
++        while j != -1:
++            i = prev_r[j]
++            if i == -1:
++                break
++            pj = match_l[i]
++            match_l[i] = j
++            match_r[j] = i
++            j = pj
++
++    out = []
++    for i in range(n_left):
++        if match_l[i] != -1:
++            out.append((i, right_ids[match_l[i]]))
++    return out
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    bank_by_amount = {}
++    for b_idx, b in enumerate(bank_txs):
++        bank_by_amount.setdefault(b.amount, []).append(b_idx)
++
++    adjacency = []
++    for l in ledger_txs:
++        candidates = []
++        for b_idx in bank_by_amount.get(l.amount, ()):
++            b = bank_txs[b_idx]
++            delta = abs((l.date - b.date).days)
++            if delta <= max_days:
++                candidates.append((b_idx, delta))
++        adjacency.append(candidates)
++
++    pairs = _min_cost_max_matching(adjacency)
++
++    used_ledger = set()
++    used_bank = set()
++    matched = []
++    for l_idx, b_idx in sorted(pairs):
++        used_ledger.add(l_idx)
++        used_bank.add(b_idx)
++        matched.append((ledger_txs[l_idx], bank_txs[b_idx]))
++
++    unmatched_ledger = [tx for i, tx in enumerate(ledger_txs) if i not in used_ledger]
++    unmatched_bank = [tx for i, tx in enumerate(bank_txs) if i not in used_bank]
++
++    return Reconciliation(
++        matched=matched,
++        unmatched_ledger=unmatched_ledger,
++        unmatched_bank=unmatched_bank,
++    )

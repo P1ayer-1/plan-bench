@@ -1,0 +1,801 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -R . | head -50 && cat *.py 2>/dev/null | head -100
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m$ [0mcat ledger/ledger.py ledger/__init__.py ledger/money.py; echo ===; cat tests/test_basic.py; echo ===; cat README.md
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+===
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+===
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcat ledger/parser.py ledger/cli.py ledger/report.py
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+[0m
+[0m← [0mWrite ledger/search.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/ledger.py
+@@ -31,8 +31,14 @@
+             continue
+         out.append(tx)
+     return out
+ 
++def search(self, query):
++    """Return transactions matching the search query, in original order."""
++    from .search import compile_query
++    predicate = compile_query(query)
++    return [tx for tx in self.transactions if predicate(tx)]
++
+ def balance(self):
+     total = Money.zero()
+     for tx in self.transactions:
+         total = total + tx.amount
+
+[0m
+[0m$ [0mpython -c "
+from datetime import date
+from ledger import Money, Ledger, Transaction
+l=Ledger([Transaction(date(2026,1,1),'Coffee shop',Money('-10'),'food',('x','work')),Transaction(date(2026,2,1),'Lunch',Money('-3'),'food',('x',))])
+for q in ['', 'category:food tag:x', 'desc:\"coffee shop\" OR (category:food AND NOT tag:work) amount<-5', 'amount=0','amount >= 10.50','date>=2026-02-01','NOT tag:work','desc:\"a\\\\\"b\"']:
+    try: print(repr(q), [t.description for t in l.search(q)])
+    except Exception as e: print(repr(q),'ERR',e)
+for q in ['foo:bar','(','category:food AND','OR tag:x','NOT','()','desc:\"abc','amount~1','date=2026-13-99','category:food:']:
+    try: l.search(q); print(q,'NO ERROR')
+    except ValueError: print(q,'ok')
+"
+python -m pytest -q
+'' ['Coffee shop', 'Lunch']
+'category:food tag:x' ['Coffee shop', 'Lunch']
+'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5' ERR unexpected token: 'amount<-5'
+'amount=0' ERR unexpected token: 'amount=0'
+'amount >= 10.50' ERR unexpected token: 'amount'
+'date>=2026-02-01' ERR unexpected token: 'date>=2026-02-01'
+'NOT tag:work' ['Lunch']
+'desc:"a\\"b"' []
+foo:bar ok
+( ok
+category:food AND ok
+OR tag:x ok
+NOT ok
+() ok
+desc:"abc ok
+amount~1 ok
+date=2026-13-99 ok
+category:food: NO ERROR
+....                                                                     [100%]
+4 passed in 0.82s
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+@@ -36,13 +36,17 @@
+ # Try to read a field term: name OP value. Field names are lowercase.
+ j = i
+ while j < n and (query[j].islower() or query[j] == "_"):
+     j += 1
+-if j < n and query[j] == ":" and j > i:
++is_colon = j < n and query[j] == ":" and j > i
++is_typed = j < n and j > i and (query[j] in "<>=" or query[j].isspace()) and (
++    j + 1 < n and (query[j + 1] in "<>=" or query[start_ws(query, j):].lstrip()[:1] in "<>=")
++)
++if is_colon or is_typed:
+     field = query[i:j]
+     if field not in _FIELDS:
+         raise ValueError(f"unknown field: {field}")
+-    if field in ("category", "tag", "desc"):
++    if is_colon and field in ("category", "tag", "desc"):
+         i = j + 1
+         value, i = _read_value(query, i)
+         tokens.append(_Token("TERM", (field, None, value)))
+     else:
+
+[0m
+[0m$ [0mgrep -n "is_colon\|is_typed\|else:" ledger/search.py | head
+40:        is_colon = j < n and query[j] == ":" and j > i
+41:        is_typed = j < n and j > i and (query[j] in "<>=" or query[j].isspace()) and (
+44:        if is_colon or is_typed:
+48:            if is_colon and field in ("category", "tag", "desc"):
+52:            else:
+83:        else:
+128:    else:
+177:            else:
+[0m
+[0m→ [0mRead ledger/search.py[90m [offset=34, limit=50][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+@@ -30,27 +30,33 @@
+ if c == ")":
+     tokens.append(_Token("RPAREN"))
+     i += 1
+     continue
+-if c == '"':
+-    pass
+ # Try to read a field term: name OP value. Field names are lowercase.
+ j = i
+ while j < n and (query[j].islower() or query[j] == "_"):
+     j += 1
+-is_colon = j < n and query[j] == ":" and j > i
+-is_typed = j < n and j > i and (query[j] in "<>=" or query[j].isspace()) and (
+-    j + 1 < n and (query[j + 1] in "<>=" or query[start_ws(query, j):].lstrip()[:1] in "<>=")
+-)
+-if is_colon or is_typed:
++if j > i and j < n and query[j] == ":":
+     field = query[i:j]
+     if field not in _FIELDS:
+         raise ValueError(f"unknown field: {field}")
+-    if is_colon and field in ("category", "tag", "desc"):
++    if field in ("category", "tag", "desc"):
+         i = j + 1
+         value, i = _read_value(query, i)
+         tokens.append(_Token("TERM", (field, None, value)))
++        continue
++elif j > i and j < n:
++    rest = query[j:].lstrip()
++    if rest[:1] in ("<", ">", "="):
++        field = query[i:j]
++        if field not in _FIELDS:
++            raise ValueError(f"unknown field: {field}")
+     else:
++        j = i
++else:
++    j = i
++if j > i:
++    if True:
+         # date/amount require whitespace-allowed OP
+         i = j + 1
+         k = i
+         while k < n and query[k].isspace():
+
+[0m
+[0m→ [0mRead ledger/search.py[90m [offset=50, limit=30][0m
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+@@ -54,28 +54,27 @@
+         j = i
+ else:
+     j = i
+ if j > i:
+-    if True:
+-        # date/amount require whitespace-allowed OP
+-        i = j + 1
+-        k = i
+-        while k < n and query[k].isspace():
+-            k += 1
+-        op = None
+-        for candidate in ("<=", ">=", "<", ">", "="):
+-            if query.startswith(candidate, k):
+-                op = candidate
+-                break
+-        if op is None:
+-            raise ValueError(f"bad operator for {field}")
+-        k += len(op)
+-        while k < n and query[k].isspace():
+-            k += 1
+-        value, k = _read_value(query, k)
+-        _validate_typed(field, value)
+-        tokens.append(_Token("TERM", (field, op, value)))
+-        i = k
++    # date/amount require whitespace-allowed OP
++    i = j + 1
++    k = i
++    while k < n and query[k].isspace():
++        k += 1
++    op = None
++    for candidate in ("<=", ">=", "<", ">", "="):
++        if query.startswith(candidate, k):
++            op = candidate
++            break
++    if op is None:
++        raise ValueError(f"bad operator for {field}")
++    k += len(op)
++    while k < n and query[k].isspace():
++        k += 1
++    value, k = _read_value(query, k)
++    _validate_typed(field, value)
++    tokens.append(_Token("TERM", (field, op, value)))
++    i = k
+     continue
+ # bare word -> keyword or error
+ j = i
+ while j < n and not query[j].isspace() and query[j] not in '()"':
+
+[0m
+[0m$ [0mpython -c "
+from datetime import date
+from ledger import Money, Ledger, Transaction
+l=Ledger([Transaction(date(2026,1,1),'Coffee shop',Money('-10'),'food',('x','work')),Transaction(date(2026,2,1),'Lunch',Money('-3'),'food',('x',))])
+for q in ['', 'category:food tag:x', 'desc:\"coffee shop\" OR (category:food AND NOT tag:work) amount<-5', 'amount=0','amount >= 10.50','date>=2026-02-01','NOT tag:work','amount < -20','amount=0.00']:
+    try: print(repr(q), [t.description for t in l.search(q)])
+    except Exception as e: print(repr(q),'ERR',e)
+for q in ['foo:bar','(','category:food AND','OR tag:x','NOT','()','desc:\"abc','amount~1','date=2026-13-99','category:food:','amount<abc','date>2026-1-1x']:
+    try: l.search(q); print(q,'NO ERROR')
+    except ValueError: print(q,'ok')
+"
+'' ['Coffee shop', 'Lunch']
+'category:food tag:x' ['Coffee shop', 'Lunch']
+'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5' ERR bad operator for amount
+'amount=0' ERR bad operator for amount
+'amount >= 10.50' []
+'date>=2026-02-01' ['Lunch']
+'NOT tag:work' ['Lunch']
+'amount < -20' []
+'amount=0.00' ERR bad operator for amount
+foo:bar ok
+( ok
+category:food AND ok
+OR tag:x ok
+NOT ok
+() ok
+desc:"abc ok
+amount~1 ok
+date=2026-13-99 ok
+category:food: NO ERROR
+amount<abc ok
+date>2026-1-1x ok
+[0m
+[0m$ [0msed -n 36,80p ledger/search.py
+while j < n and (query[j].islower() or query[j] == "_"):
+            j += 1
+        if j > i and j < n and query[j] == ":":
+            field = query[i:j]
+            if field not in _FIELDS:
+                raise ValueError(f"unknown field: {field}")
+            if field in ("category", "tag", "desc"):
+                i = j + 1
+                value, i = _read_value(query, i)
+                tokens.append(_Token("TERM", (field, None, value)))
+                continue
+        elif j > i and j < n:
+            rest = query[j:].lstrip()
+            if rest[:1] in ("<", ">", "="):
+                field = query[i:j]
+                if field not in _FIELDS:
+                    raise ValueError(f"unknown field: {field}")
+            else:
+                j = i
+        else:
+            j = i
+        if j > i:
+            # date/amount require whitespace-allowed OP
+            i = j + 1
+            k = i
+            while k < n and query[k].isspace():
+                k += 1
+            op = None
+            for candidate in ("<=", ">=", "<", ">", "="):
+                if query.startswith(candidate, k):
+                    op = candidate
+                    break
+            if op is None:
+                raise ValueError(f"bad operator for {field}")
+            k += len(op)
+            while k < n and query[k].isspace():
+                k += 1
+            value, k = _read_value(query, k)
+            _validate_typed(field, value)
+            tokens.append(_Token("TERM", (field, op, value)))
+            i = k
+            continue
+        # bare word -> keyword or error
+        j = i
+        while j < n and not query[j].isspace() and query[j] not in '()"':
+[0m
+[0m$ [0mpython - <<'EOF'
+p='ledger/search.py'
+s=open(p).read()
+s=s.replace('''            if field in ("category", "tag", "desc"):
+                i = j + 1
+                value, i = _read_value(query, i)
+                tokens.append(_Token("TERM", (field, None, value)))
+                continue
+        elif j > i and j < n:''','''            if field in ("category", "tag", "desc"):
+                i = j + 1
+                value, i = _read_value(query, i)
+                tokens.append(_Token("TERM", (field, None, value)))
+                continue
+            op_start = j + 1
+        elif j > i and j < n:''')
+s=s.replace('''                if field not in _FIELDS:
+                    raise ValueError(f"unknown field: {field}")
+            else:
+                j = i
+        else:
+            j = i
+        if j > i:
+            # date/amount require whitespace-allowed OP
+            i = j + 1
+            k = i''','''                if field not in _FIELDS:
+                    raise ValueError(f"unknown field: {field}")
+                op_start = j
+            else:
+                j = i
+        else:
+            j = i
+        if j > i:
+            # date/amount require whitespace-allowed OP
+            k = op_start''')
+open(p,'w').write(s)
+EOF
+python -c "
+from datetime import date
+from ledger import Money, Ledger, Transaction
+l=Ledger([Transaction(date(2026,1,1),'Coffee shop',Money('-10'),'food',('x','work')),Transaction(date(2026,2,1),'Lunch',Money('-3'),'food',('x',))])
+for q in ['desc:\"coffee shop\" OR (category:food AND NOT tag:work) amount<-5','amount=0','amount >= 10.50','date>=2026-02-01','amount < -20','amount=-10','amount==1','amount<=-10']:
+    try: print(repr(q), [t.description for t in l.search(q)])
+    except Exception as e: print(repr(q),'ERR',e)
+"
+'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5' ['Coffee shop']
+'amount=0' []
+'amount >= 10.50' []
+'date>=2026-02-01' ['Lunch']
+'amount < -20' []
+'amount=-10' ['Coffee shop']
+'amount==1' ERR invalid number: '=1'
+'amount<=-10' ['Coffee shop']
+[0m
+[0m$ [0mpython -c "
+from datetime import date
+from ledger import Money, Ledger, Transaction
+l=Ledger([])
+for q in ['foo:bar','(','category:food AND','OR tag:x','NOT','()','desc:\"abc','amount~1','date=2026-13-99','amount<abc','date>2026-1-1x','(category:x','category:x)','NOT AND','AND','amount<','desc:','category:foo OR ()','cat:foo']:
+    try: l.search(q); print(repr(q),'NO ERROR')
+    except ValueError: print(repr(q),'ok')
+"
+python -m pytest -q
+'foo:bar' ok
+'(' ok
+'category:food AND' ok
+'OR tag:x' ok
+'NOT' ok
+'()' ok
+'desc:"abc' ok
+'amount~1' ok
+'date=2026-13-99' ok
+'amount<abc' ok
+'date>2026-1-1x' ok
+'(category:x' ok
+'category:x)' ok
+'NOT AND' ok
+'AND' ok
+'amount<' ok
+'desc:' ok
+'category:foo OR ()' ok
+'cat:foo' ok
+....                                                                     [100%]
+4 passed in 0.15s
+[0m
+[0m$ [0mcat > tests/test_search.py <<'EOF'
+from datetime import date
+
+import pytest
+
+from ledger import Ledger, Money, Transaction
+
+
+def make():
+    return Ledger([
+        Transaction(date(2026, 1, 3), "Coffee Shop", Money("-4.50"), "food", ("morning",)),
+        Transaction(date(2026, 1, 15), "Salary", Money("3000.00"), "income"),
+        Transaction(date(2026, 2, 1), "Rent", Money("-1200.00"), "housing", ("fixed", "monthly")),
+        Transaction(date(2026, 2, 10), "Coffee beans", Money("-20.00"), "food", ("work",)),
+        Transaction(date(2026, 3, 1), "Zero", Money("0"), "misc"),
+    ])
+
+
+def descs(query):
+    return [t.description for t in make().search(query)]
+
+
+def test_empty_matches_all():
+    assert len(descs("")) == 5
+    assert len(descs("   ")) == 5
+
+
+def test_category_tag_desc():
+    assert descs("category:food") == ["Coffee Shop", "Coffee beans"]
+    assert descs("category:FOOD") == ["Coffee Shop", "Coffee beans"]
+    assert descs("tag:morning") == ["Coffee Shop"]
+    assert descs("tag:FIXED") == ["Rent"]
+    assert descs("desc:coffee") == ["Coffee Shop", "Coffee beans"]
+    assert descs('desc:"coffee shop"') == ["Coffee Shop"]
+
+
+def test_amount_date():
+    assert descs("amount<-20") == ["Rent"]
+    assert descs("amount < -20") == ["Rent"]
+    assert descs("amount>=3000") == ["Salary"]
+    assert descs("amount=0") == ["Zero"]
+    assert descs("date>=2026-02-01") == ["Rent", "Coffee beans", "Zero"]
+    assert descs("date<2026-02-01") == ["Coffee Shop", "Salary"]
+
+
+def test_boolean_and_parens():
+    assert descs("category:food tag:work") == ["Coffee beans"]
+    assert descs("tag:morning OR tag:work") == ["Coffee Shop", "Coffee beans"]
+    assert descs("NOT category:food") == ["Salary", "Rent", "Zero"]
+    assert descs("(category:food AND NOT tag:work)") == ["Coffee Shop"]
+    assert descs(
+        'desc:"coffee shop" OR (category:food AND NOT tag:work) amount<-5'
+    ) == ["Coffee Shop"]
+
+
+def test_quoting():
+    l = Ledger([Transaction(date(2026, 1, 1), 'say "hi" \\ there', Money("1"), "x")])
+    assert len(l.search('desc:"say \\"hi\\" \\\\ there"')) == 1
+
+
+def test_order_preserved():
+    assert descs("category:food") == ["Coffee Shop", "Coffee beans"]
+
+
+@pytest.mark.parametrize("q", [
+    "foo:bar",
+    "(category:food",
+    "category:food)",
+    "category:food AND",
+    "OR tag:x",
+    "NOT",
+    "()",
+    'desc:"unterminated',
+    "amount~1",
+    "amount<abc",
+    "date>=2026-13-01",
+    "amount<",
+    "desc:",
+])
+def test_errors(q):
+    with pytest.raises(ValueError):
+        make().search(q)
+EOF
+python -m pytest -q
+.......................                                                  [100%]
+23 passed in 0.22s
+[0m
+[0m$ [0msed -n 25,100p ledger/search.py
+continue
+        if c == "(":
+            tokens.append(_Token("LPAREN"))
+            i += 1
+            continue
+        if c == ")":
+            tokens.append(_Token("RPAREN"))
+            i += 1
+            continue
+        # Try to read a field term: name OP value. Field names are lowercase.
+        j = i
+        while j < n and (query[j].islower() or query[j] == "_"):
+            j += 1
+        if j > i and j < n and query[j] == ":":
+            field = query[i:j]
+            if field not in _FIELDS:
+                raise ValueError(f"unknown field: {field}")
+            if field in ("category", "tag", "desc"):
+                i = j + 1
+                value, i = _read_value(query, i)
+                tokens.append(_Token("TERM", (field, None, value)))
+                continue
+            op_start = j + 1
+        elif j > i and j < n:
+            rest = query[j:].lstrip()
+            if rest[:1] in ("<", ">", "="):
+                field = query[i:j]
+                if field not in _FIELDS:
+                    raise ValueError(f"unknown field: {field}")
+                op_start = j
+            else:
+                j = i
+        else:
+            j = i
+        if j > i:
+            # date/amount require whitespace-allowed OP
+            k = op_start
+            while k < n and query[k].isspace():
+                k += 1
+            op = None
+            for candidate in ("<=", ">=", "<", ">", "="):
+                if query.startswith(candidate, k):
+                    op = candidate
+                    break
+            if op is None:
+                raise ValueError(f"bad operator for {field}")
+            k += len(op)
+            while k < n and query[k].isspace():
+                k += 1
+            value, k = _read_value(query, k)
+            _validate_typed(field, value)
+            tokens.append(_Token("TERM", (field, op, value)))
+            i = k
+            continue
+        # bare word -> keyword or error
+        j = i
+        while j < n and not query[j].isspace() and query[j] not in '()"':
+            j += 1
+        word = query[i:j]
+        if not word:
+            raise ValueError(f"unexpected character: {c!r}")
+        upper = word.upper()
+        if upper in ("AND", "OR", "NOT"):
+            tokens.append(_Token(upper))
+        else:
+            raise ValueError(f"unexpected token: {word!r}")
+        i = j
+    return tokens
+
+
+def _read_value(query, i):
+    n = len(query)
+    if i >= n:
+        raise ValueError("missing value")
+    if query[i] == '"':
+        i += 1
+[0m
+[0m← [0mEdit ledger/search.py
+Index: /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+===================================================================
+--- /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
++++ /suite/results/runs/commandcode-goat-noreasoning--t10_query_dsl--r3--20261109-010546-917313/ws/ledger/search.py
+@@ -44,17 +44,13 @@
+         value, i = _read_value(query, i)
+         tokens.append(_Token("TERM", (field, None, value)))
+         continue
+     op_start = j + 1
+-elif j > i and j < n:
+-    rest = query[j:].lstrip()
+-    if rest[:1] in ("<", ">", "="):
+-        field = query[i:j]
+-        if field not in _FIELDS:
+-            raise ValueError(f"unknown field: {field}")
+-        op_start = j
+-    else:
+-        j = i
++elif j > i and j < n and query[j:].lstrip()[:1] in ("<", ">", "="):
++    field = query[i:j]
++    if field not in _FIELDS:
++        raise ValueError(f"unknown field: {field}")
++    op_start = j
+ else:
+     j = i
+ if j > i:
+     # date/amount require whitespace-allowed OP
+
+[0m
+[0m$ [0mpython -m pytest -q
+.......................                                                  [100%]
+23 passed in 0.68s
+[0m

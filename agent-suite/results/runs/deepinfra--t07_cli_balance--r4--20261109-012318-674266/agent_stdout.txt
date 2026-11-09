@@ -1,0 +1,1 @@
+Implemented. `balance` supports `--since`/`--until`/`--category` (inclusive dates), prints `Balance: <amount> <currency>`, defaults to `0.00 USD`, and invalid dates exit 2. Tests pass (4 passed).

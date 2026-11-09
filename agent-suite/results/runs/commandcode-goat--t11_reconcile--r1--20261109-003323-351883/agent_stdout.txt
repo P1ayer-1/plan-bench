@@ -1,0 +1,3 @@
+Implemented `ledger/reconcile.py` with `Reconciliation` and `reconcile()`, using per-amount dynamic programming for optimal maximum-cardinality, minimum-distance matching. Exported from `ledger/__init__.py`.
+
+`python -m pytest -q` — 4 passed.

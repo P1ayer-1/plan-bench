@@ -1,0 +1,334 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..f7a71d3 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import search_transactions
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,10 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching a search query, preserving order."""
++        return search_transactions(self.transactions, query)
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..9b6d368
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,305 @@
++import re
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++_NUMBER_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$")
++_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
++
++_LPAREN = "LPAREN"
++_RPAREN = "RPAREN"
++_WORD = "WORD"
++_QUOTED = "QUOTED"
++
++_FIELDS = ("category", "tag", "desc")
++_KEYWORDS = ("AND", "OR", "NOT")
++
++
++class _Token:
++    __slots__ = ("kind", "value", "start", "end")
++
++    def __init__(self, kind, value, start, end):
++        self.kind = kind
++        self.value = value
++        self.start = start
++        self.end = end
++
++
++def _tokenize(query):
++    tokens = []
++    i = 0
++    n = len(query)
++    while i < n:
++        c = query[i]
++        if c.isspace():
++            i += 1
++        elif c == "(":
++            tokens.append(_Token(_LPAREN, c, i, i + 1))
++            i += 1
++        elif c == ")":
++            tokens.append(_Token(_RPAREN, c, i, i + 1))
++            i += 1
++        elif c == '"':
++            start = i
++            i += 1
++            chars = []
++            closed = False
++            while i < n:
++                c = query[i]
++                if c == "\\":
++                    if i + 1 >= n:
++                        raise ValueError("unterminated quote")
++                    nxt = query[i + 1]
++                    if nxt == '"' or nxt == "\\":
++                        chars.append(nxt)
++                    else:
++                        chars.append("\\")
++                        chars.append(nxt)
++                    i += 2
++                elif c == '"':
++                    i += 1
++                    closed = True
++                    break
++                else:
++                    chars.append(c)
++                    i += 1
++            if not closed:
++                raise ValueError("unterminated quote")
++            tokens.append(_Token(_QUOTED, "".join(chars), start, i))
++        else:
++            start = i
++            while i < n and not query[i].isspace() and query[i] not in '()"':
++                i += 1
++            tokens.append(_Token(_WORD, query[start:i], start, i))
++    return tokens
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        if self.pos >= len(self.tokens):
++            return None
++        return self.tokens[self.pos]
++
++    def match_keyword(self, keyword):
++        tok = self.peek()
++        if tok is not None and tok.kind == _WORD and tok.value.upper() == keyword:
++            self.pos += 1
++            return True
++        return False
++
++    def starts_operand(self):
++        tok = self.peek()
++        if tok is None or tok.kind == _RPAREN:
++            return False
++        if tok.kind == _WORD and tok.value.upper() in ("AND", "OR"):
++            return False
++        return True
++
++    def parse(self):
++        if not self.tokens:
++            return ("true",)
++        node = self.parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError("unexpected token")
++        return node
++
++    def parse_or(self):
++        node = self.parse_and()
++        while self.match_keyword("OR"):
++            if not self.starts_operand():
++                raise ValueError("missing operand after OR")
++            node = ("or", node, self.parse_and())
++        return node
++
++    def parse_and(self):
++        node = self.parse_not()
++        while True:
++            if self.match_keyword("AND"):
++                if not self.starts_operand():
++                    raise ValueError("missing operand after AND")
++                node = ("and", node, self.parse_not())
++            elif self.starts_operand():
++                node = ("and", node, self.parse_not())
++            else:
++                break
++        return node
++
++    def parse_not(self):
++        if self.match_keyword("NOT"):
++            if not self.starts_operand():
++                raise ValueError("missing operand after NOT")
++            return ("not", self.parse_not())
++        return self.parse_primary()
++
++    def parse_primary(self):
++        tok = self.peek()
++        if tok is None:
++            raise ValueError("missing operand")
++        if tok.kind == _LPAREN:
++            self.pos += 1
++            if self.peek() is not None and self.peek().kind == _RPAREN:
++                raise ValueError("empty group")
++            if self.peek() is None:
++                raise ValueError("unbalanced parentheses")
++            node = self.parse_or()
++            tok = self.peek()
++            if tok is None or tok.kind != _RPAREN:
++                raise ValueError("unbalanced parentheses")
++            self.pos += 1
++            return node
++        if tok.kind == _RPAREN:
++            raise ValueError("unexpected )")
++        if tok.kind == _WORD and tok.value.upper() in _KEYWORDS:
++            raise ValueError("missing operand")
++        return self.parse_term()
++
++    def parse_term(self):
++        tok = self.peek()
++        if tok is None or tok.kind != _WORD:
++            raise ValueError("expected a term")
++
++        text = tok.value
++        if ":" in text:
++            field, value = text.split(":", 1)
++            if field not in _FIELDS:
++                raise ValueError(f"unknown field: {field}")
++            if value == "":
++                nxt = self.tokens[self.pos + 1] if self.pos + 1 < len(self.tokens) else None
++                if (
++                    nxt is not None
++                    and nxt.kind == _QUOTED
++                    and nxt.start == tok.end
++                ):
++                    value = nxt.value
++                    self.pos += 2
++                else:
++                    raise ValueError(f"missing value for {field}")
++            else:
++                self.pos += 1
++            return ("field", field, value)
++
++        field = None
++        if text == "amount" or (
++            text.startswith("amount") and len(text) > len("amount") and text[len("amount")] in "<>="
++        ):
++            field = "amount"
++        elif text == "date" or (
++            text.startswith("date") and len(text) > len("date") and text[len("date")] in "<>="
++        ):
++            field = "date"
++
++        if field is None:
++            raise ValueError(f"malformed term: {text}")
++
++        node, self.pos = self._parse_comparison(field, self.pos)
++        return node
++
++    def _parse_comparison(self, field, index):
++        tokens = self.tokens
++        idx = index
++        char_idx = len(field)
++
++        def advance_token():
++            nonlocal idx, char_idx
++            idx += 1
++            if idx >= len(tokens) or tokens[idx].kind != _WORD:
++                raise ValueError(f"missing operand for {field}")
++            char_idx = 0
++
++        text = tokens[idx].value
++        if char_idx >= len(text):
++            advance_token()
++            text = tokens[idx].value
++
++        c = text[char_idx]
++        if c in "<>":
++            if char_idx + 1 < len(text) and text[char_idx + 1] == "=":
++                op = c + "="
++                char_idx += 2
++            else:
++                op = c
++                char_idx += 1
++        elif c == "=":
++            op = "="
++            char_idx += 1
++        else:
++            raise ValueError(f"bad operator in {field} comparison")
++
++        if char_idx >= len(tokens[idx].value):
++            advance_token()
++
++        operand = tokens[idx].value[char_idx:]
++        next_index = idx + 1
++        if not operand:
++            raise ValueError(f"missing operand for {field}")
++
++        if field == "amount":
++            if not _NUMBER_RE.match(operand):
++                raise ValueError(f"invalid number: {operand}")
++            try:
++                value = Decimal(operand)
++            except InvalidOperation:
++                raise ValueError(f"invalid number: {operand}")
++        else:
++            if not _DATE_RE.match(operand):
++                raise ValueError(f"invalid date: {operand}")
++            try:
++                value = date.fromisoformat(operand)
++            except ValueError:
++                raise ValueError(f"invalid date: {operand}")
++
++        return ("compare", field, op, value), next_index
++
++
++def _compare(lhs, op, rhs):
++    if op == "<":
++        return lhs < rhs
++    if op == "<=":
++        return lhs <= rhs
++    if op == ">":
++        return lhs > rhs
++    if op == ">=":
++        return lhs >= rhs
++    if op == "=":
++        return lhs == rhs
++    raise ValueError(f"bad operator: {op}")
++
++
++def _matches(node, tx):
++    kind = node[0]
++    if kind == "true":
++        return True
++    if kind == "and":
++        return _matches(node[1], tx) and _matches(node[2], tx)
++    if kind == "or":
++        return _matches(node[1], tx) or _matches(node[2], tx)
++    if kind == "not":
++        return not _matches(node[1], tx)
++    if kind == "field":
++        field, value = node[1], node[2]
++        needle = value.casefold()
++        if field == "category":
++            return tx.category.casefold() == needle
++        if field == "tag":
++            return any(tag.casefold() == needle for tag in tx.tags)
++        if field == "desc":
++            return needle in tx.description.casefold()
++    if kind == "compare":
++        field, op, value = node[1], node[2], node[3]
++        if field == "amount":
++            amount = getattr(tx.amount, "amount", tx.amount)
++            return _compare(amount, op, value)
++        return _compare(tx.date, op, value)
++    raise ValueError("invalid query")
++
++
++def parse_query(query):
++    return _Parser(_tokenize(query)).parse()
++
++
++def search_transactions(transactions, query):
++    node = parse_query(query)
++    return [tx for tx in transactions if _matches(node, tx)]

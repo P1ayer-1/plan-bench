@@ -1,0 +1,79 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..9540652
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,73 @@
++from datetime import date
++from decimal import Decimal, localcontext
++
++from .money import Money
++from .ledger import Ledger
++
++PRECISION = 28
++
++
++def _to_decimal(rate):
++    if isinstance(rate, Decimal):
++        return rate
++    return Decimal(str(rate))
++
++
++class RateTable:
++    """Historical exchange rates, stored as exact Decimals."""
++
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on: date, base: str, quote: str, rate):
++        self._rates.setdefault((base, quote), {})[on] = _to_decimal(rate)
++
++    def _direct(self, base, quote, on):
++        series = self._rates.get((base, quote))
++        if not series:
++            return None
++        dates = [d for d in series if d <= on]
++        if not dates:
++            return None
++        return series[max(dates)]
++
++    def rate(self, base, quote, on: date) -> Decimal:
++        with localcontext() as ctx:
++            ctx.prec = PRECISION
++            if base == quote:
++                return Decimal(1)
++            r = self._direct(base, quote, on)
++            if r is not None:
++                return r
++            r = self._direct(quote, base, on)
++            if r is not None:
++                return Decimal(1) / r
++            try:
++                usd = self.rate(base, "USD", on)
++                other = self.rate("USD", quote, on)
++            except KeyError:
++                raise KeyError((base, quote, on))
++            return usd * other
++
++
++def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
++    with localcontext() as ctx:
++        ctx.prec = PRECISION
++        rate = table.rate(money.currency, to, on)
++        amount = money.amount * rate
++    return Money(amount, to)
++
++
++def balance_in(self, currency: str, table: RateTable, on=None) -> Money:
++    with localcontext() as ctx:
++        ctx.prec = PRECISION
++        if not self.transactions:
++            return Money.zero(currency)
++        total = Decimal(0)
++        for tx in self.transactions:
++            when = on if on is not None else tx.date
++            total += tx.amount.amount * table.rate(tx.amount.currency, currency, when)
++    return Money(total, currency)
++
++
++Ledger.balance_in = balance_in

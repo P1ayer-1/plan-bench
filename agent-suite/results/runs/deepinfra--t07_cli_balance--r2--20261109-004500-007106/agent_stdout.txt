@@ -1,0 +1,3 @@
+Let me check how Money string formats zero and negative values, then implement.
+`argparse.ArgumentTypeError` exits with status 2 and prints to stderr. Let me test manually and run the suite.
+All working; existing `summary` intact, 4 tests pass.

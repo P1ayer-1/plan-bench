@@ -1,0 +1,1 @@
+Implemented `ledger/recurring.py` with `Recurrence`, `occurrences`, and `expand`, plus `Ledger.add_recurring` and exports. Tests pass: `4 passed`.

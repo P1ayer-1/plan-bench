@@ -1,0 +1,5 @@
+Done. `dedupe` now uses a `set` for O(1) membership instead of rebuilding/scans, remaining O(n).
+
+- 200k transactions deduped in ~0.16s (was quadratic)
+- Preserves first occurrence, order, and returns `self`
+- `python -m pytest -q`: 4 passed

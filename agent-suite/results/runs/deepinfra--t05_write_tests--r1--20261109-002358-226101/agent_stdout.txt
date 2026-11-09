@@ -1,0 +1,1 @@
+Added `tests/test_report.py` with 29 tests covering month grouping/sorting, zero-padding, year boundaries, sign/netting, cents, currency preservation, ordering independence, and `largest_expenses` sorting, n boundaries, zero/positive filtering, and non-mutation. Full suite: `33 passed`.

@@ -1,0 +1,1 @@
+Done. Added `balance` to `ledger/cli.py` using `Ledger.query` and `Money`; all 4 tests pass.

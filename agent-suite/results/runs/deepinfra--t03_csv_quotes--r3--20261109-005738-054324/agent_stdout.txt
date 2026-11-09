@@ -1,0 +1,1 @@
+Done. Fixed `ledger/parser.py` to use `csv.reader`, strip quotes, normalize line endings, allow a missing `tags` column, and raise `ValueError` with the 1-based line number on field-count mismatch. All 4 tests pass.

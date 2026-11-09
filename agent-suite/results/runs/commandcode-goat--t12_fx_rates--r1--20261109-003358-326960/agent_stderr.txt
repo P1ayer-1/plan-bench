@@ -1,0 +1,583 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -type f -not -path './.git/*' | head -100
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:33 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:33 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 632 Nov  9 00:34 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m$ [0mcat tests/test_basic.py && cat ledger/report.py ledger/parser.py
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+from .money import Money
+
+
+def monthly_summary(ledger):
+    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+    result = {}
+    for tx in ledger.transactions:
+        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+        if m not in result:
+            result[m] = {}
+        if tx.category not in result[m]:
+            result[m][tx.category] = Money.zero(tx.amount.currency)
+        result[m][tx.category] = result[m][tx.category] + tx.amount
+    return dict(sorted(result.items()))
+
+
+def largest_expenses(ledger, n=3):
+    """Return the n most negative transactions, most negative first."""
+    expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]
+    return sorted(expenses, key=lambda tx: tx.amount.amount)[:n]
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+[0m
+[0m$ [0mcat ledger/money.py ledger/ledger.py ledger/__init__.py README.md
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mpython --version && cat opencode.json && git log --oneline -5
+Python 3.11.2
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat/run/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}1b67622 base
+[0m
+[0m← [0mWrite ledger/fx.py
+Wrote file successfully.
+[0m
+[0m← [0mEdit ledger/fx.py
+Index: /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
++++ /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
+@@ -63,22 +63,12 @@
+         except KeyError:
+             raise KeyError((base, quote, on)) from None
+ 
+ 
+-def _convert_amount(amount: Decimal, to: str, table: RateTable, on: date) -> Decimal:
+-    from_currency = getattr(amount, "currency", None)
+-    if isinstance(amount, Money):
+-        from_currency = amount.currency
+-        value = amount.amount
+-    else:
+-        from_currency = to
+-        value = amount
++def _convert_amount(money: Money, to: str, table: RateTable, on: date) -> Decimal:
+     with localcontext() as ctx:
+         ctx.prec = _PRECISION
+-        return value * table.rate(from_currency, to, on)
++        return money.amount * table.rate(money.currency, to, on)
+ 
+ 
+ def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
+-    with localcontext() as ctx:
+-        ctx.prec = _PRECISION
+-        amount = money.amount * table.rate(money.currency, to, on)
+-    return Money(amount, to)
++    return Money(_convert_amount(money, to, table, on), to)
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
+ 
+ 
+ @dataclass(frozen=True)
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/ledger.py
+@@ -38,8 +38,22 @@
+     for tx in self.transactions:
+         total = total + tx.amount
+     return total
+ 
++def balance_in(self, currency, table, on=None):
++    """Return the ledger total in currency, converting each transaction at
++    the rate on its own date (or on ``on`` when given). Converted amounts
++    are summed unrounded and rounded once at the end."""
++    from .fx import _PRECISION, _convert_amount
++
++    total = Decimal(0)
++    with localcontext() as ctx:
++        ctx.prec = _PRECISION
++        for tx in self.transactions:
++            when = on if on is not None else tx.date
++            total += _convert_amount(tx.amount, currency, table, when)
++    return Money(total, currency)
++
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
+     result = []
+
+[0m
+[0m$ [0mcat > ledger/__init__.py <<'EOF'
+from .money import Money
+from .ledger import Ledger, Transaction
+from .fx import RateTable, convert
+EOF
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 3.91s
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from decimal import Decimal
+from ledger import Money, Ledger, Transaction, RateTable, convert
+
+t=RateTable()
+t.add(date(2020,1,1),'EUR','USD','1.10')
+t.add(date(2020,1,1),'GBP','EUR','2')
+print(t.rate('EUR','USD',date(2021,1,1)))
+print(t.rate('USD','EUR',date(2021,1,1)))
+print(t.rate('GBP','USD',date(2021,1,1)))
+print(t.rate('USD','GBP',date(2021,1,1)))
+print(t.rate('EUR','EUR',date(2021,1,1)))
+# earlier insert
+t.add(date(2019,1,1),'EUR','USD','1.20')
+print(t.rate('EUR','USD',date(2019,6,1)), t.rate('EUR','USD',date(2020,6,1)))
+# replace
+t.add(date(2020,1,1),'EUR','USD','1.11')
+print(t.rate('EUR','USD',date(2020,6,1)))
+# missing
+try: t.rate('JPY','USD',date(2021,1,1))
+except KeyError as e: print('KeyError',e)
+# conversion
+print(convert(Money('10.00','EUR'),'USD',t,date(2021,1,1)))
+# round once: rate 1/3 and amount 1 -> .333.. -> 0.33
+t2=RateTable(); t2.add(date(2020,1,1),'X','USD','0.3333333333333333333333333333')
+print(convert(Money('1.00','X'),'USD',t2,date(2020,1,1)))
+# balance unrounded: two tx 0.01 each at rate .5 => each .005, sum .01 => .01 ; individually round .01 each => .02
+t3=RateTable(); t3.add(date(2020,1,1),'X','USD','0.5')
+l=Ledger([Transaction(date(2020,1,1),'a',Money('0.01','X'),'c'),Transaction(date(2020,1,1),'b',Money('0.01','X'),'c')])
+print(l.balance_in('USD',t3))
+print(Ledger().balance_in('USD',t3))
+PY
+1.10
+0.90909090909090909090909090909090909090909090909091
+Traceback (most recent call last):
+  File "<stdin>", line 10, in <module>
+  File "/suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py", line 64, in rate
+    raise KeyError((base, quote, on)) from None
+KeyError: ('GBP', 'USD', datetime.date(2021, 1, 1))
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from decimal import Decimal
+from ledger import Money, Ledger, Transaction, RateTable, convert
+t=RateTable()
+t.add(date(2020,1,1),'EUR','USD','1.10')
+t.add(date(2020,1,1),'GBP','EUR','2')
+t.add(date(2020,1,1),'USD','JPY','100')
+print(t.rate('GBP','JPY',date(2021,1,1)))
+print(t.rate('JPY','GBP',date(2021,1,1)))
+t.add(date(2019,1,1),'EUR','USD','1.20')
+print(t.rate('EUR','USD',date(2019,6,1)), t.rate('EUR','USD',date(2020,6,1)))
+t.add(date(2020,1,1),'EUR','USD','1.11')
+print(t.rate('EUR','USD',date(2020,6,1)))
+try: t.rate('JPY','USD',date(2021,1,1))
+except KeyError as e: print('KeyError',e)
+print(convert(Money('10.00','EUR'),'USD',t,date(2021,1,1)))
+t2=RateTable(); t2.add(date(2020,1,1),'X','USD','0.3333333333333333333333333333')
+print(convert(Money('1.00','X'),'USD',t2,date(2020,1,1)))
+t3=RateTable(); t3.add(date(2020,1,1),'X','USD','0.5')
+l=Ledger([Transaction(date(2020,1,1),'a',Money('0.01','X'),'c'),Transaction(date(2020,1,1),'b',Money('0.01','X'),'c')])
+print(l.balance_in('USD',t3))
+print(Ledger().balance_in('USD',t3))
+PY
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+  File "/suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py", line 64, in rate
+    raise KeyError((base, quote, on)) from None
+KeyError: ('GBP', 'JPY', datetime.date(2021, 1, 1))
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from ledger import Money, Ledger, Transaction, RateTable, convert
+t=RateTable()
+t.add(date(2020,1,1),'EUR','USD','1.10')
+t.add(date(2020,1,1),'GBP','USD','2')
+t.add(date(2020,1,1),'USD','JPY','100')
+print(t.rate('GBP','JPY',date(2021,1,1)))
+print(t.rate('JPY','GBP',date(2021,1,1)))
+t.add(date(2019,1,1),'EUR','USD','1.20')
+print(t.rate('EUR','USD',date(2019,6,1)), t.rate('EUR','USD',date(2020,6,1)))
+t.add(date(2020,1,1),'EUR','USD','1.11')
+print(t.rate('EUR','USD',date(2020,6,1)))
+try: t.rate('JPY','USD',date(2021,1,1))
+except KeyError as e: print('KeyError',e)
+print(convert(Money('10.00','EUR'),'USD',t,date(2021,1,1)))
+t2=RateTable(); t2.add(date(2020,1,1),'X','USD','0.3333333333333333333333333333')
+print(convert(Money('1.00','X'),'USD',t2,date(2020,1,1)))
+t3=RateTable(); t3.add(date(2020,1,1),'X','USD','0.5')
+l=Ledger([Transaction(date(2020,1,1),'a',Money('0.01','X'),'c'),Transaction(date(2020,1,1),'b',Money('0.01','X'),'c')])
+print(l.balance_in('USD',t3))
+print(Ledger().balance_in('USD',t3))
+PY
+200
+0.005
+1.20 1.10
+1.11
+11.10 USD
+0.33 USD
+0.01 USD
+0.00 USD
+[0m
+[0m$ [0mgit diff --stat && git status --short && python -m pytest -q
+ledger/__init__.py |  1 +
+ ledger/ledger.py   | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+)
+ M ledger/__init__.py
+ M ledger/ledger.py
+?? ledger/fx.py
+....                                                                     [100%]
+4 passed in 0.29s
+[0m
+[0m← [0mEdit ledger/fx.py
+Index: /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
++++ /suite/results/runs/commandcode-goat--t12_fx_rates--r1--20261109-003358-326960/ws/ledger/fx.py
+@@ -3,9 +3,9 @@
+ from decimal import Decimal, localcontext
+ 
+ from .money import Money
+ 
+-_PRECISION = 50
++_PRECISION = 28
+ 
+ 
+ class RateTable:
+     """Historical exchange rates between currencies."""
+
+[0m
+[0m$ [0mpython - <<'PY'
+from datetime import date
+from decimal import Decimal
+from ledger import RateTable
+t=RateTable(); t.add(date(2020,1,1),'A','B','3')
+print(t.rate('B','A',date(2020,1,1)) == Decimal(1)/Decimal(3))
+PY
+python -m pytest -q
+True
+....                                                                     [100%]
+4 passed in 0.59s
+[0m
+[0m$ [0mgit diff ledger/ledger.py ledger/__init__.py && cat ledger/fx.py
+diff --git a/ledger/__init__.py b/ledger/__init__.py
+index 2f61f49..d27dc09 100644
+--- a/ledger/__init__.py
++++ b/ledger/__init__.py
+@@ -1,2 +1,3 @@
+ from .money import Money
+ from .ledger import Ledger, Transaction
++from .fx import RateTable, convert
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..8cea4a1 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,5 +1,6 @@
+ from dataclasses import dataclass, field
+ from datetime import date
++from decimal import Decimal, localcontext
+ from .money import Money
+ 
+ 
+@@ -38,6 +39,20 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        """Return the ledger total in currency, converting each transaction at
++        the rate on its own date (or on ``on`` when given). Converted amounts
++        are summed unrounded and rounded once at the end."""
++        from .fx import _PRECISION, _convert_amount
++
++        total = Decimal(0)
++        with localcontext() as ctx:
++            ctx.prec = _PRECISION
++            for tx in self.transactions:
++                when = on if on is not None else tx.date
++                total += _convert_amount(tx.amount, currency, table, when)
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""
+from bisect import bisect_right
+from datetime import date
+from decimal import Decimal, localcontext
+
+from .money import Money
+
+_PRECISION = 28
+
+
+class RateTable:
+    """Historical exchange rates between currencies."""
+
+    def __init__(self):
+        self._rates = {}
+
+    def add(self, on: date, base: str, quote: str, rate):
+        if isinstance(rate, Decimal):
+            value = rate
+        else:
+            value = Decimal(str(rate))
+        entries = self._rates.setdefault((base, quote), [])
+        dates = [d for d, _ in entries]
+        index = bisect_right(dates, on)
+        if index > 0 and entries[index - 1][0] == on:
+            entries[index - 1] = (on, value)
+        else:
+            entries.insert(index, (on, value))
+
+    def _latest(self, base, quote, on):
+        entries = self._rates.get((base, quote))
+        if not entries:
+            return None
+        dates = [d for d, _ in entries]
+        index = bisect_right(dates, on)
+        if index == 0:
+            return None
+        return entries[index - 1][1]
+
+    def _direct(self, base, quote, on):
+        if base == quote:
+            return Decimal(1)
+        value = self._latest(base, quote, on)
+        if value is not None:
+            return value
+        inverse = self._latest(quote, base, on)
+        if inverse is not None:
+            with localcontext() as ctx:
+                ctx.prec = _PRECISION
+                return Decimal(1) / inverse
+        raise KeyError((base, quote, on))
+
+    def rate(self, base: str, quote: str, on: date) -> Decimal:
+        if base == quote:
+            return Decimal(1)
+        try:
+            return self._direct(base, quote, on)
+        except KeyError:
+            pass
+        try:
+            with localcontext() as ctx:
+                ctx.prec = _PRECISION
+                return self._direct(base, "USD", on) * self._direct("USD", quote, on)
+        except KeyError:
+            raise KeyError((base, quote, on)) from None
+
+
+def _convert_amount(money: Money, to: str, table: RateTable, on: date) -> Decimal:
+    with localcontext() as ctx:
+        ctx.prec = _PRECISION
+        return money.amount * table.rate(money.currency, to, on)
+
+
+def convert(money: Money, to: str, table: RateTable, on: date) -> Money:
+    return Money(_convert_amount(money, to, table, on), to)
+[0m

@@ -1,0 +1,318 @@
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..0210138 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -1,6 +1,7 @@
+ from dataclasses import dataclass, field
+ from datetime import date
+ from .money import Money
++from .search import compile_query
+ 
+ 
+ @dataclass(frozen=True)
+@@ -32,6 +33,11 @@ class Ledger:
+             out.append(tx)
+         return out
+ 
++    def search(self, query):
++        """Return transactions matching the search query, in original order."""
++        node = compile_query(query)
++        return [tx for tx in self.transactions if node.match(tx)]
++
+     def balance(self):
+         total = Money.zero()
+         for tx in self.transactions:
+diff --git a/ledger/search.py b/ledger/search.py
+new file mode 100644
+index 0000000..19c5365
+--- /dev/null
++++ b/ledger/search.py
+@@ -0,0 +1,288 @@
++"""Search-query language for ledgers."""
++
++from datetime import date
++from decimal import Decimal, InvalidOperation
++
++OPS = ("<=", ">=", "<", ">", "=")
++FIELDS = ("category", "tag", "desc", "amount", "date")
++
++
++class _Term:
++    def __init__(self, field, op, value):
++        self.field = field
++        self.op = op
++        self.value = value
++
++    def match(self, tx):
++        if self.field == "category":
++            return tx.category.lower() == self.value.lower()
++        if self.field == "tag":
++            target = self.value.lower()
++            return any(t.lower() == target for t in tx.tags)
++        if self.field == "desc":
++            return self.value.lower() in tx.description.lower()
++        if self.field == "amount":
++            actual = tx.amount.amount
++            expected = self.value
++        else:  # date
++            actual = tx.date
++            expected = self.value
++        op = self.op
++        if op == "<":
++            return actual < expected
++        if op == "<=":
++            return actual <= expected
++        if op == ">":
++            return actual > expected
++        if op == ">=":
++            return actual >= expected
++        return actual == expected
++
++
++class _And:
++    def __init__(self, left, right):
++        self.left = left
++        self.right = right
++
++    def match(self, tx):
++        return self.left.match(tx) and self.right.match(tx)
++
++
++class _Or:
++    def __init__(self, left, right):
++        self.left = left
++        self.right = right
++
++    def match(self, tx):
++        return self.left.match(tx) or self.right.match(tx)
++
++
++class _Not:
++    def __init__(self, operand):
++        self.operand = operand
++
++    def match(self, tx):
++        return not self.operand.match(tx)
++
++
++class _All:
++    def match(self, tx):
++        return True
++
++
++# Token kinds: LPAREN, RPAREN, AND, OR, NOT, TERM
++def _tokenize(query):
++    tokens = []
++    i = 0
++    n = len(query)
++    while i < n:
++        c = query[i]
++        if c.isspace():
++            i += 1
++            continue
++        if c == "(":
++            tokens.append(("LPAREN", None))
++            i += 1
++            continue
++        if c == ")":
++            tokens.append(("RPAREN", None))
++            i += 1
++            continue
++        if c == '"':
++            raise ValueError("unexpected quote")
++        if c in "<>=":
++            raise ValueError("unexpected operator")
++
++        # Detect keyword surrounded by token boundaries.
++        word = _read_bare(query, i)
++        upper = word.upper()
++        end = i + len(word)
++        if upper in ("AND", "OR", "NOT"):
++            tokens.append((upper, None))
++            i = end
++            continue
++
++        # Field term: field:value or field OP number
++        tag_token, i = _read_term(query, i)
++        tokens.append(tag_token)
++
++    return tokens
++
++
++def _read_bare(query, start):
++    """Read a run of chars that are not whitespace, parens or quotes."""
++    i = start
++    n = len(query)
++    while i < n and not query[i].isspace() and query[i] not in '()"':
++        i += 1
++    return query[start:i]
++
++
++def _parse_quoted(query, start):
++    """Parse a quoted string starting at index start (which is a quote).
++    Returns (value, end_index)."""
++    i = start + 1
++    n = len(query)
++    out = []
++    while i < n:
++        c = query[i]
++        if c == "\\":
++            if i + 1 >= n:
++                raise ValueError("unterminated escape")
++            nxt = query[i + 1]
++            if nxt == '"':
++                out.append('"')
++            elif nxt == "\\":
++                out.append("\\")
++            else:
++                raise ValueError("bad escape")
++            i += 2
++            continue
++        if c == '"':
++            return "".join(out), i + 1
++        out.append(c)
++        i += 1
++    raise ValueError("unterminated quote")
++
++
++def _read_term(query, start):
++    n = len(query)
++    # field name up to ':' or an operator
++    i = start
++    while i < n and query[i] not in ':(<>= \t\n\r()"':
++        i += 1
++    field = query[start:i]
++    if field not in FIELDS:
++        raise ValueError(f"unknown field: {field!r}")
++
++    if i < n and query[i] == ":":
++        if field in ("amount", "date"):
++            raise ValueError(f"{field} requires an operator")
++        i += 1
++        if i < n and query[i] == '"':
++            value, i = _parse_quoted(query, i)
++        else:
++            value = _read_bare_stop_paren(query, i)
++            i += len(value)
++            if not value:
++                raise ValueError("missing value")
++        return ("TERM", _Term(field, "=", value)), i
++
++    # operator term
++    if field not in ("amount", "date"):
++        raise ValueError(f"{field} takes a ':' not an operator")
++    while i < n and query[i] in " \t\n\r":
++        i += 1
++    op = None
++    for candidate in OPS:
++        if query.startswith(candidate, i):
++            op = candidate
++            i += len(candidate)
++            break
++    if op is None:
++        raise ValueError("bad operator")
++    while i < n and query[i] in " \t\n\r":
++        i += 1
++    j = i
++    while j < n and not query[j].isspace() and query[j] not in '()"':
++        j += 1
++    raw = query[i:j]
++    if not raw:
++        raise ValueError("missing number/date")
++    if field == "amount":
++        try:
++            value = Decimal(raw)
++        except InvalidOperation:
++            raise ValueError(f"invalid number: {raw!r}")
++        if not value.is_finite():
++            raise ValueError(f"invalid number: {raw!r}")
++    else:
++        try:
++            value = date.fromisoformat(raw)
++        except ValueError:
++            raise ValueError(f"invalid date: {raw!r}")
++    return ("TERM", _Term(field, op, value)), j
++
++
++def _read_bare_stop_paren(query, start):
++    """Read a bare value: run of chars other than whitespace, parens, quotes."""
++    i = start
++    n = len(query)
++    while i < n and not query[i].isspace() and query[i] not in '()"':
++        i += 1
++    return query[start:i]
++
++
++class _Parser:
++    def __init__(self, tokens):
++        self.tokens = tokens
++        self.pos = 0
++
++    def peek(self):
++        if self.pos < len(self.tokens):
++            return self.tokens[self.pos]
++        return (None, None)
++
++    def next(self):
++        tok = self.peek()
++        self.pos += 1
++        return tok
++
++    def parse(self):
++        node = self.parse_or()
++        if self.pos != len(self.tokens):
++            raise ValueError("unexpected token")
++        return node
++
++    def parse_or(self):
++        node = self.parse_and()
++        while self.peek()[0] == "OR":
++            self.next()
++            right = self.parse_and()
++            node = _Or(node, right)
++        return node
++
++    def parse_and(self):
++        node = self.parse_not()
++        while True:
++            kind = self.peek()[0]
++            if kind == "AND":
++                self.next()
++                node = _And(node, self.parse_not())
++            elif kind in ("TERM", "NOT", "LPAREN"):
++                node = _And(node, self.parse_not())
++            else:
++                break
++        return node
++
++    def parse_not(self):
++        if self.peek()[0] == "NOT":
++            self.next()
++            return _Not(self.parse_not())
++        return self.parse_atom()
++
++    def parse_atom(self):
++        kind, value = self.next()
++        if kind == "TERM":
++            return value
++        if kind == "LPAREN":
++            if self.peek()[0] == "RPAREN":
++                raise ValueError("empty group")
++            node = self.parse_or()
++            if self.peek()[0] != "RPAREN":
++                raise ValueError("unbalanced parentheses")
++            self.next()
++            return node
++        raise ValueError("missing operand")
++
++
++def compile_query(query):
++    """Compile a query string into a predicate-like node."""
++    if query is None:
++        return _All()
++    if not query.strip():
++        return _All()
++    tokens = _tokenize(query)
++    if not tokens:
++        return _All()
++    return _Parser(tokens).parse()

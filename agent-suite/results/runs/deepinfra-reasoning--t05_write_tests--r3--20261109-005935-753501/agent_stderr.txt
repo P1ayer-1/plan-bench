@@ -1,0 +1,159 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mfind . -maxdepth 3 -type f | head -50 && echo "---" && ls -la
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./.git/hooks/pre-commit.sample
+./.git/hooks/pre-receive.sample
+./.git/hooks/push-to-checkout.sample
+./.git/hooks/fsmonitor-watchman.sample
+./.git/hooks/pre-push.sample
+./.git/hooks/pre-rebase.sample
+./.git/hooks/prepare-commit-msg.sample
+./.git/hooks/applypatch-msg.sample
+./.git/hooks/update.sample
+./.git/hooks/pre-applypatch.sample
+./.git/hooks/pre-merge-commit.sample
+./.git/hooks/commit-msg.sample
+./.git/hooks/post-update.sample
+./.git/description
+./.git/info/exclude
+./.git/HEAD
+./.git/config
+./.git/index
+./.git/COMMIT_EDITMSG
+./.git/logs/HEAD
+./.git/opencode
+./opencode.json
+---
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  9 00:59 ..
+drwxrwxrwx 1 root root 512 Nov  9 00:59 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 673 Nov  9 00:59 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+[0m
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m$ [0mcat README.md; echo "---"; cat ledger/__init__.py; echo "---"; cat ledger/cli.py; echo "---"; cat opencode.json
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+---
+from .money import Money
+from .ledger import Ledger, Transaction
+---
+import argparse, sys
+from .ledger import Ledger
+from .parser import parse_csv
+from .report import monthly_summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ledger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("summary", help="monthly category summary")
+    s.add_argument("file")
+    args = ap.parse_args(argv)
+
+    with open(args.file) as f:
+        ledger = Ledger(parse_csv(f.read()))
+    if args.cmd == "summary":
+        for month, cats in monthly_summary(ledger).items():
+            print(month)
+            for cat, total in sorted(cats.items()):
+                print(f"  {cat}: {total}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+---
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/deepinfra-reasoning/run/deepinfra-reasoning--t05_write_tests--r3--20261109-005935-753501/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017": {
+          "name": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "small_model": "bench/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+}
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+...............F........                                                 [100%]
+=================================== FAILURES ===================================
+______________ test_largest_expenses_returns_most_negative_first _______________
+
+    def test_largest_expenses_returns_most_negative_first():
+        small = tx("2026-01-01", "-5.00", "food")
+        medium = tx("2026-01-02", "-100.00", "shopping")
+        large = tx("2026-01-03", "-1000.00", "housing")
+        tiny = tx("2026-01-04", "-0.01", "food")
+    
+        result = largest_expenses(Ledger([small, large, tiny, medium]))
+    
+>       assert result == [large, medium, small, tiny]
+E       AssertionError: assert [Transaction(...od', tags=())] == [Transaction(...od', tags=())]
+E         
+E         Right contains one more item: Transaction(date=datetime.date(2026, 1, 4), description='tx', amount=Money('-0.01', 'USD'), category='food', tags=())
+E         Use -v to get more diff
+
+tests/test_report.py:202: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_report.py::test_largest_expenses_returns_most_negative_first
+1 failed, 23 passed in 3.55s
+[0m
+[0m← [0mEdit tests/test_report.py
+Index: /suite/results/runs/deepinfra-reasoning--t05_write_tests--r3--20261109-005935-753501/ws/tests/test_report.py
+===================================================================
+--- /suite/results/runs/deepinfra-reasoning--t05_write_tests--r3--20261109-005935-753501/ws/tests/test_report.py
++++ /suite/results/runs/deepinfra-reasoning--t05_write_tests--r3--20261109-005935-753501/ws/tests/test_report.py
+@@ -196,9 +196,9 @@
+ medium = tx("2026-01-02", "-100.00", "shopping")
+ large = tx("2026-01-03", "-1000.00", "housing")
+ tiny = tx("2026-01-04", "-0.01", "food")
+ 
+-result = largest_expenses(Ledger([small, large, tiny, medium]))
++result = largest_expenses(Ledger([small, large, tiny, medium]), n=4)
+ 
+ assert result == [large, medium, small, tiny]
+ assert [t.amount for t in result] == [
+     Money("-1000.00"),
+
+[0m
+[0m$ [0mpython -m pytest -q
+........................                                                 [100%]
+24 passed in 0.21s
+[0m

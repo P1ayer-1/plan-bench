@@ -1,0 +1,4 @@
+Now update parse_atom to handle colon/op tokens as a term.
+Tokenizer correctly emits colon; the lexer also sets field word to "desc" separately—but error says "desc:". Let me check tokenizer.
+All error cases raise and queries work. Add tests.
+Added `Ledger.search` backed by `ledger/search.py` (tokenizer, recursive-descent parser, predicate compiler) with full term/operator/error support; all 9 tests pass.

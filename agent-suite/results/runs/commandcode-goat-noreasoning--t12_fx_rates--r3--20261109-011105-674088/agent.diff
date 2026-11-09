@@ -1,0 +1,95 @@
+diff --git a/ledger/fx.py b/ledger/fx.py
+new file mode 100644
+index 0000000..4ebe02a
+--- /dev/null
++++ b/ledger/fx.py
+@@ -0,0 +1,63 @@
++from datetime import date
++from decimal import Decimal, getcontext, localcontext
++
++from .money import Money
++
++with localcontext() as ctx:
++    ctx.prec = max(getcontext().prec, 28)
++
++
++def _dec(rate):
++    if isinstance(rate, Decimal):
++        return rate
++    return Decimal(str(rate))
++
++
++class RateTable:
++    def __init__(self):
++        self._rates = {}
++
++    def add(self, on, base, quote, rate):
++        self._rates.setdefault((base, quote), {})[on] = _dec(rate)
++        return self
++
++    def _latest(self, base, quote, on):
++        entries = self._rates.get((base, quote))
++        if not entries:
++            return None
++        best = None
++        for d, r in entries.items():
++            if d <= on and (best is None or d > best[0]):
++                best = (d, r)
++        return None if best is None else best[1]
++
++    def rate(self, base, quote, on):
++        if base == quote:
++            return Decimal(1)
++        with localcontext() as ctx:
++            ctx.prec = max(ctx.prec, 28)
++            r = self._latest(base, quote, on)
++            if r is not None:
++                return r
++            inv = self._latest(quote, base, on)
++            if inv is not None:
++                if inv == 0:
++                    raise KeyError((base, quote, on))
++                return Decimal(1) / inv
++            try:
++                a = self.rate(base, "USD", on)
++            except KeyError:
++                raise KeyError((base, quote, on))
++            try:
++                b = self.rate("USD", quote, on)
++            except KeyError:
++                raise KeyError((base, quote, on))
++            return a * b
++
++
++def convert(money, to, table, on):
++    with localcontext() as ctx:
++        ctx.prec = max(ctx.prec, 28)
++        rate = table.rate(money.currency, to, on)
++        amount = money.amount * rate
++    return Money(amount, to)
+diff --git a/ledger/ledger.py b/ledger/ledger.py
+index 5c3d76d..dc2f820 100644
+--- a/ledger/ledger.py
++++ b/ledger/ledger.py
+@@ -38,6 +38,21 @@ class Ledger:
+             total = total + tx.amount
+         return total
+ 
++    def balance_in(self, currency, table, on=None):
++        from decimal import Decimal, localcontext
++        from .money import Money
++
++        if not self.transactions:
++            return Money.zero(currency)
++        with localcontext() as ctx:
++            ctx.prec = max(ctx.prec, 28)
++            total = Decimal(0)
++            for tx in self.transactions:
++                d = on if on is not None else tx.date
++                rate = table.rate(tx.amount.currency, currency, d)
++                total += tx.amount.amount * rate
++        return Money(total, currency)
++
+     def dedupe(self):
+         """Remove duplicate transactions (same date, description and amount),
+         keeping the first occurrence and preserving order."""

@@ -1,0 +1,169 @@
+diff --git a/ledger/reconcile.py b/ledger/reconcile.py
+new file mode 100644
+index 0000000..3431838
+--- /dev/null
++++ b/ledger/reconcile.py
+@@ -0,0 +1,163 @@
++from dataclasses import dataclass, field
++
++
++@dataclass
++class Reconciliation:
++    matched: list = field(default_factory=list)
++    unmatched_ledger: list = field(default_factory=list)
++    unmatched_bank: list = field(default_factory=list)
++
++
++def _key(tx):
++    amt = tx.amount
++    return (amt.amount, amt.currency)
++
++
++def reconcile(ledger_txs, bank_txs, max_days=3):
++    """Reconcile ledger transactions against bank transactions.
++
++    A ledger and bank transaction may be paired only if their amounts are equal
++    (currency included) and their dates are at most ``max_days`` apart.  The
++    result maximises the number of pairs; among those it minimises the total
++    date distance.  ``matched`` is ordered by ledger input position and both
++    unmatched lists preserve input order.
++    """
++    ledger_txs = list(ledger_txs)
++    bank_txs = list(bank_txs)
++
++    bank_by_key = {}
++    for j, btx in enumerate(bank_txs):
++        bank_by_key.setdefault(_key(btx), []).append(j)
++
++    ledger_by_key = {}
++    for i, ltx in enumerate(ledger_txs):
++        ledger_by_key.setdefault(_key(ltx), []).append(i)
++
++    matched_pairs = []
++    for key, lidxs in ledger_by_key.items():
++        bidxs = bank_by_key.get(key)
++        if not bidxs:
++            continue
++        matched_pairs.extend(_match_group(ledger_txs, bank_txs, lidxs, bidxs, max_days))
++
++    matched_pairs.sort(key=lambda p: p[0])
++    used_ledger = {p[0] for p in matched_pairs}
++    used_bank = {p[1] for p in matched_pairs}
++
++    matched = [(ledger_txs[i], bank_txs[j]) for i, j, _ in matched_pairs]
++    unmatched_ledger = [tx for i, tx in enumerate(ledger_txs) if i not in used_ledger]
++    unmatched_bank = [tx for j, tx in enumerate(bank_txs) if j not in used_bank]
++
++    return Reconciliation(matched, unmatched_ledger, unmatched_bank)
++
++
++def _match_group(ledger_txs, bank_txs, lidxs, bidxs, max_days):
++    """Min-cost maximum-cardinality bipartite matching within one amount group.
++
++    ``lidxs``/``bidxs`` are indices into the original lists.  Returns a list of
++    ``(ledger_index, bank_index, cost)`` tuples.
++    """
++    import bisect
++
++    lidx_sorted = sorted(lidxs, key=lambda i: ledger_txs[i].date)
++    bidx_sorted = sorted(bidxs, key=lambda j: bank_txs[j].date)
++    bords = [bank_txs[j].date.toordinal() for j in bidx_sorted]
++
++    adj = {}
++    for li, i in enumerate(lidx_sorted):
++        o = ledger_txs[i].date.toordinal()
++        lo = bisect.bisect_left(bords, o - max_days)
++        hi = bisect.bisect_right(bords, o + max_days)
++        edges = [(k, abs(bords[k] - o)) for k in range(lo, hi)]
++        edges.sort(key=lambda e: e[1])
++        adj[li] = edges
++
++    n_l = len(lidx_sorted)
++    n_b = len(bidx_sorted)
++
++    match_l = [-1] * n_l
++    match_b = [-1] * n_b
++    pot_l = [0] * n_l
++    pot_b = [0] * n_b
++    INF = float("inf")
++
++    def augment():
++        # Source connects to every currently-free ledger node at zero cost, so
++        # each augmentation picks the globally cheapest way to add one pair
++        # (rather than following a fixed ledger order).  That is what makes
++        # successive shortest paths yield a min-cost matching of every
++        # cardinality along the way, and hence at the maximum.
++        dist_l = [INF] * n_l
++        dist_b = [INF] * n_b
++        prev_l = [-1] * n_l
++        prev_b = [-1] * n_b
++        for li in range(n_l):
++            if match_l[li] == -1:
++                dist_l[li] = 0
++
++        changed = True
++        while changed:
++            changed = False
++            for li in range(n_l):
++                dl = dist_l[li]
++                if dl == INF:
++                    continue
++                matched_k = match_l[li]
++                for k, cost in adj[li]:
++                    if k == matched_k:
++                        continue
++                    nd = dl + cost + pot_l[li] - pot_b[k]
++                    if nd < dist_b[k]:
++                        dist_b[k] = nd
++                        prev_b[k] = li
++                        changed = True
++            for k in range(n_b):
++                mb = match_b[k]
++                if mb == -1 or dist_b[k] == INF:
++                    continue
++                nd = dist_b[k] - pot_b[k] + pot_l[mb]
++                if nd < dist_l[mb]:
++                    dist_l[mb] = nd
++                    prev_l[mb] = k
++                    changed = True
++
++        best = -1
++        best_d = INF
++        for k in range(n_b):
++            if match_b[k] == -1 and dist_b[k] < best_d:
++                best_d = dist_b[k]
++                best = k
++        if best == -1:
++            return False
++
++        for li in range(n_l):
++            if dist_l[li] != INF:
++                pot_l[li] += dist_l[li]
++        for k in range(n_b):
++            if dist_b[k] != INF:
++                pot_b[k] += dist_b[k]
++
++        k = best
++        while k != -1:
++            li = prev_b[k]
++            prev_k = prev_l[li]
++            new_k = match_l[li]
++            match_l[li] = k
++            match_b[k] = li
++            if new_k != -1:
++                match_b[new_k] = -1
++            k = prev_k
++        return True
++
++    while augment():
++        pass
++
++    result = []
++    for li in range(n_l):
++        k = match_l[li]
++        if k == -1:
++            continue
++        i = lidx_sorted[li]
++        j = bidx_sorted[k]
++        result.append((i, j, abs((ledger_txs[i].date - bank_txs[j].date).days)))
++    return result

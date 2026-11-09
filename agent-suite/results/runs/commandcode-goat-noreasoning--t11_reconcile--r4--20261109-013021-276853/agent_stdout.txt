@@ -1,0 +1,29 @@
+I left some sloppy bits in that first draft. Let me clean it up properly.
+Still messy; let me write the final clean version.
+Now let me add tests and verify with a brute-force comparison on small random cases plus a performance check.
+`list.index` is wrong with duplicates. Use id-based mapping.
+The bug: connected components can grow to include ledger rows already assigned in a previous component, because `assigned_ledger` is only checked for the seed.
+Also mark assigned during the component expansion so other seeds skip it, and keep it correct. Let me rerun.
+That's correct: 6 matches (brute force can only find 3 because it treats duplicate Transaction objects as identical by identity... actually `L[i]` indexing differs). Let me check brute: it returned 3, which is wrong since L has 5 matched-able 2.00 rows but only 3 bank 2.00. Max is 4 (3x 2.00 + 1x 1.00). My result has 6 — impossible. There are duplicate rows being matched multiple times. Bug in component rows.
+
+The component expansion uses `rows` gathering all ledger rows, but multiple seeds with the same row? No. Actually 5 ledger 2.00 rows but 3 bank 2.00 rows → max 3 for that amount, plus 2 ledger... wait L2,L5 are 2.00 and 1.00. L has six rows: indices 0-5, all 2.00 except L5=1.00. So 5 ledger 2.00, 3 bank 2.00 → max 3. Plus 1 ledger 1.00 matched to 1 bank → total 4. My output has 6 pairs, so ledger indices repeated. Let me debug rows.
+Bank B0 (id ...582480) is used twice, and B2 (...582736) three times. The bug: each seed creates a new component covering the whole connected set, and I only skip assigned ledger, not banks. I need to skip components whose banks are already used, or better, process each connected component only once.
+
+Fix: skip seed if any of its feasible banks is already assigned? No—proper approach: track `assigned_bank` and don't build a component if seed's row already assigned; and after a component, all its rows and banks are assigned. Then next seed in same component has its row assigned → skipped. But B0 used across components because component for L0 and L3 aren't connected via ledger? They are connected via shared banks only through ledger rows... actually all ledger 2.00 rows share banks → one component. Unless bank keys differ by Money identity? Money has __hash__/__eq__, fine.
+
+Wait the issue: `group_items` iteration; component grows via `cand_bank.update`, but when checking `lj in row_set or lj in assigned_ledger`, after first component all rows should be assigned. Unless first component didn't include all rows because expansion loop's `for lj, feasj in group_items` starts fresh and adds as it goes; should reach fixpoint. Let me check: maybe `rows` list passed to Hungarian mismatched with row_feas ordering due to rows.sort() but row_feas not reordered!
+
+Yes! `rows.sort()` without sorting row_feas correspondingly, and then `rows[r]` doesn't align with `cost` row r. That's the real bug.
+Still 6 matched. Component still reuses banks across seeds. Let me instrument.
+Only 2 banks of 2.00, so max 2 for 2.00, plus 1 → 3. My code returned 6 pairs reusing banks, meaning `assigned_bank` never used to filter, and each seed produces a component with rows=[all], and Hungarian assign length min(n,m)=2 but somehow 6 pairs? rows 6, cols 2 → transposed path. Let me trace pairs.
+There are 4 component solves — meaning the graph split. Because expansion used `cand_bank.update` but seeds L1/L2 etc are checked `lj in assigned_ledger`; after first component only some rows assigned. The real problem: components as computed per seed are incomplete because I skip assigned ledger rows during growth, splitting what should be one component. Instead I should compute components over the full bipartite graph independent of assignment, and process each once.
+
+Simpler robust approach: compute connected components globally (union-find) on candidate edges, solve each component once.
+All brute-force checks pass, performance is fine. Now add permanent tests.
+My test is wrong: tx(5) is 4 days from tx(1), beyond max_days=3, so only l[0] is feasible.
+All 11 tests pass. Added `ledger/reconcile.py` implementing `reconcile()` and `Reconciliation`.
+
+Implementation notes:
+- Groups candidates by equal `Money`, then builds connected components (union-find) so each component is small.
+- Solves each component with the Hungarian algorithm, which maximizes pair count and minimizes total date distance exactly.
+- Handles duplicate transactions by index, preserves ledger order in `matched` and input order in the unmatched lists.

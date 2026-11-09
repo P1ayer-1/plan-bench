@@ -1,0 +1,3 @@
+`Ledger.dedupe()` now uses a hash set for seen keys instead of rebuilding/searching a list each iteration (ledger/ledger.py:37).
+
+Tests pass (`4 passed`), and 200k transactions dedupe in ~0.32s.

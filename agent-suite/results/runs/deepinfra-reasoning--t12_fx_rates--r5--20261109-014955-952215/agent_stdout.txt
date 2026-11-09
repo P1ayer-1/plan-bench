@@ -1,0 +1,3 @@
+Implemented FX support in `ledger/fx.py` with `RateTable` and `convert`, plus `Ledger.balance_in` in `ledger/ledger.py`. Rates use exact `Decimal` arithmetic, inverse/USD fallbacks, and unrounded accumulation with a single final cent rounding. Exported via `ledger/__init__.py`.
+
+`python -m pytest -q` → 4 passed.

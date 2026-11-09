@@ -1,0 +1,1 @@
+The 4-field row now succeeds (missing `tags`), and the 6-field row reports `line 2`. Done: `ledger/parser.py` now uses `csv.reader` for quoting/doubled quotes, handles `\r\n`, and validates field counts with 1-based line numbers. All 4 tests pass.
