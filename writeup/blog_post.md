@@ -1,7 +1,7 @@
 # $10 of API credits vs a $10/month coding plan: what each buys for agentic coding
 
 *Measured November 8–9, 2026. Prices and promos change; check them before relying on these numbers.
-Method, tasks, harness and raw logs: [[link to repo]].*
+Method, tasks, harness and raw logs: https://github.com/P1ayer-1/plan-bench.*
 
 **TL;DR:** Same model (DeepSeek V4.1 Flash), same coding agent, same 13 tasks, through two routes: DeepInfra's
 pay-as-you-go API, and Command Code's $10/month GOAT plan. Each route ran with reasoning on and off.
