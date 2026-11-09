@@ -1,20 +1,30 @@
-# $10 of API credits vs a $10/month coding plan: what each buys for agentic coding
+# Is a $10/month coding plan worth it? $10 of API credits vs Command Code's GOAT plan for agentic coding
 
 *Measured November 8–9, 2026. Prices and promos change; check them before relying on these numbers.
 Method, tasks, harness and raw logs: https://github.com/P1ayer-1/plan-bench.*
 
-**TL;DR:** Same model (DeepSeek V4.1 Flash), same coding agent, same 13 tasks, through two routes: DeepInfra's
-pay-as-you-go API, and Command Code's $10/month GOAT plan. Each route ran with reasoning on and off.
+**TL;DR: For most people, no. Put $10 on the API instead.** The plan only pays off if you'd otherwise spend more
+than $10 a month on API calls, which on DeepSeek V4.1 Flash means running a coding agent on **~120+ tasks every
+day**. Quality is the same either way, as long as reasoning is turned on.
 
-- **Whether reasoning is on decided quality; the route didn't.** With reasoning on, both routes passed every hard task
-  (25/25 each). With it off, they passed 19/25 and 21/25. With reasoning matched, the two routes were indistinguishable.
-- **Reasoning also made the API route cheaper.** Without it, the agent took nearly twice as many turns and
-  sometimes timed out. With reasoning on, DeepInfra cost **$0.0028 per passed task**, so $10 covers about 3,500 tasks.
-- **The plan buys more, if you use it.** Command Code used $0.0083 of plan credit per passed task, which
-  works out to roughly 12,000 tasks a month for $10. Its peak-hour pricing (2×) applied to over half
-  the run. Off-peak, the same work would be about 19,000 tasks.
-- **Break-even is about 120 passed agent tasks a day.** Below that, $10 of API credit costs less and lasts longer than
-  a month. Neither route hit a cap, a rate limit, or a malformed tool call in 2,863 requests.
+| your usage (agent tasks like a bug fix or small feature) | $10 of API credit (DeepInfra) | $10/month plan (Command Code GOAT) |
+|---|---|---|
+| light: ~10 a day | ~$0.85/month, so $10 lasts about a year | $10/month |
+| regular: ~40 a day | ~$3.40/month, so $10 lasts ~3 months | $10/month |
+| break-even: ~120 a day | ~$10/month | $10/month |
+| heavy: ~300 a day, all day | ~$25/month | $10/month, still well under its caps |
+
+What's behind that:
+
+- **Same model, same quality.** Both routes passed every hard task with reasoning on (25/25 each). With reasoning
+  off, both slipped (19/25 and 21/25). The route made no measurable difference; reasoning did. Command Code turns
+  it on by default; on DeepInfra you have to ask for it, and it made the tasks *cheaper*, because the agent stopped flailing.
+- **API: $0.0028 per passed task** (DeepInfra, reasoning on), so $10 buys about 3,500 tasks and never expires.
+- **Plan: $0.0083 of credit per passed task**, against $100 of credit a month, or about 12,000 tasks for
+  $10. That's only if you use it all, and it costs double during weekday peak hours (01–04 and 06–10 UTC), which
+  covered over half of this run. On the 100 requests Command Code's own usage history shows, its charges matched my figures exactly.
+- **The plan responds slower:** about a second extra before each response starts. Nothing hit a cap, rate limit or
+  malformed tool call in 2,863 requests.
 
 ## The question
 
