@@ -3,23 +3,28 @@
 *Measured November 8–9, 2026. Prices and promos change; check them before relying on these numbers.
 Method, tasks, harness and raw logs: https://github.com/P1ayer-1/plan-bench.*
 
-**TL;DR: For most people, no. Put $10 on the API instead.** The plan only pays off if you'd otherwise spend more
-than $10 a month on API calls, which on DeepSeek V4.1 Flash means running a coding agent on **~120+ tasks every
-day**. Quality is the same either way, as long as reasoning is turned on.
+**TL;DR: Worth it if you code with an agent every day; not if you use one occasionally.** The $10/month plan beats
+$10 of pay-as-you-go credit once you'd spend more than $10 a month on API calls, which happens fast with daily agent
+use on a real codebase. Past that point it buys **3–5× more work per dollar**, at the same quality, with reasoning
+on. For occasional use, $10 of API credit lasts months and costs less.
 
-| your usage (agent tasks like a bug fix or small feature) | $10 of API credit (DeepInfra) | $10/month plan (Command Code GOAT) |
+| your usage (tasks the size of this benchmark's*) | $10 of API credit (DeepInfra) | $10/month plan (Command Code GOAT) |
 |---|---|---|
-| light: ~10 a day | ~$0.85/month, so $10 lasts about a year | $10/month |
+| occasional: ~10 a day | ~$0.85/month, so $10 lasts about a year | $10/month |
 | regular: ~40 a day | ~$3.40/month, so $10 lasts ~3 months | $10/month |
 | break-even: ~120 a day | ~$10/month | $10/month |
-| heavy: ~300 a day, all day | ~$25/month | $10/month, still well under its caps |
+| heavy: ~300 a day | ~$25/month | $10/month, well under its caps |
+
+\*About 100k prompt tokens per task, mostly cached: small features and bug fixes on a small library. Agent sessions
+on a real codebase are often 5–10× bigger, which moves the break-even down to roughly **12–25 tasks a day**.
+The rule that holds either way: if you'd spend more than $10 a month on the API, take the plan.
 
 What's behind that:
 
 - **Same model, same quality.** Both routes passed every hard task with reasoning on (25/25 each). With reasoning
   off, both slipped (19/25 and 21/25). The route made no measurable difference; reasoning did. Command Code turns
   it on by default; on DeepInfra you have to ask for it, and it made the tasks *cheaper*, because the agent stopped flailing.
-- **API: $0.0028 per passed task** (DeepInfra, reasoning on), so $10 buys about 3,500 tasks and never expires.
+- **API: $0.0028 per passed task** (DeepInfra, reasoning on), so $10 buys about 3,500 tasks and isn't tied to a month.
 - **Plan: $0.0083 of credit per passed task**, against $100 of credit a month, or about 12,000 tasks for
   $10. That's only if you use it all, and it costs double during weekday peak hours (01–04 and 06–10 UTC), which
   covered over half of this run. On the 100 requests Command Code's own usage history shows, its charges matched my figures exactly.
@@ -163,7 +168,8 @@ were the agent's own: wrong answers on hard tasks, plus 4 timeouts by the no-rea
 - **Turn reasoning on.** On DeepSeek V4.1 Flash it was the difference between 76–84% and 100% on hard tasks,
   and on the pay-as-you-go route it was cheaper too.
 - **The route doesn't change quality.** Same model, same answers. What differs is price, latency, and defaults.
-- **Light to moderate use (under ~120 agent tasks a day): $10 of API credit.** It's cheaper, starts each
-  response a second sooner, and doesn't expire at the end of the month.
-- **Heavy daily use: the $10 plan,** worth roughly 3–5× as many tasks per dollar, more if you work outside
-  01–04 and 06–10 UTC on weekdays. The caps won't get in your way on a model this cheap.
+- **Daily agent use: the $10 plan.** Once you'd spend more than $10 a month on the API (roughly 12–25 tasks a day
+  on a real codebase, ~120 a day at this benchmark's task size), it buys 3–5× as many tasks per dollar, more if you
+  work outside 01–04 and 06–10 UTC on weekdays. The caps won't get in your way on a model this cheap.
+- **Occasional use: $10 of API credit.** It's cheaper at low volume, starts each response a second sooner,
+  and isn't tied to a billing month.

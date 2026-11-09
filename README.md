@@ -20,8 +20,9 @@ tool-call health, billed cost, and plan caps.
 | passed tasks per $10 | ~2,700 | ~3,500 | ~12,000/month if fully used | ~16,800/month if fully used |
 | median time to first token | 0.79 s | 0.72 s | 1.41 s | 1.41 s |
 
-Reasoning decided quality; the route didn't. With reasoning on, $10 of API credit beats the $10/month plan
-below about 120 passed agent tasks a day. No caps, rate limits or malformed tool calls in 2,863 requests.
+Reasoning decided quality; the route didn't. The $10/month plan is worth it for daily agent use: once you'd spend
+more than $10 a month on the API, it buys 3–5× more work per dollar (break-even ~120 tasks a day at this benchmark's
+task size, roughly 12–25 a day for real-codebase sessions). For occasional use, $10 of API credit is cheaper. No caps, rate limits or malformed tool calls in 2,863 requests.
 Details and caveats are in the write-up.
 
 ## Single-shot harness (`bench.py`, older)
