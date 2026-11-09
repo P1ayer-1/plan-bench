@@ -1,0 +1,4 @@
+I'll start by exploring the codebase to understand the module.
+Created `tests/test_report.py` covering month/year grouping, zero-padding, chronological ordering, category aggregation, sign handling, empty ledgers, currencies, `n` limits, filtering non-expenses, sort direction, and non-mutation.
+
+`python -m pytest -q`: **28 passed**.

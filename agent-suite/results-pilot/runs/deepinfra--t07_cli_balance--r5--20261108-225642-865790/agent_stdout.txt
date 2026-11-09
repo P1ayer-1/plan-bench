@@ -1,0 +1,1 @@
+Added `balance` to `ledger/cli.py:24`, using `Ledger.query` and inclusive date filters. Invalid dates exit 2 via `_parse_date` (`ledger/cli.py:9`). `summary` unchanged; all 4 tests pass.

@@ -1,0 +1,182 @@
+{
+  "ts": "2026-11-08T22:05:09.442887+00:00",
+  "reports": [
+    {
+      "side": "deepinfra",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "model_listed": true,
+      "tool_call": {
+        "status": 200,
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "provider": null,
+        "ttft_s": 0.58,
+        "latency_s": 0.74,
+        "error": null,
+        "usage": {
+          "prompt_tokens": 287,
+          "total_tokens": 336,
+          "completion_tokens": 49,
+          "estimated_cost": 1.8196639999999997e-05,
+          "prompt_tokens_details": {
+            "cached_tokens": 256,
+            "cache_write_tokens": null
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "calls": [
+          {
+            "name": "read_file",
+            "args": "{\"path\": \"ledger/money.py\"}"
+          }
+        ]
+      },
+      "caching": [
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3688,
+            "total_tokens": 3690,
+            "completion_tokens": 2,
+            "estimated_cost": 2.1316960000000003e-05,
+            "prompt_tokens_details": {
+              "cached_tokens": 3584,
+              "cache_write_tokens": null
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        },
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3688,
+            "total_tokens": 3690,
+            "completion_tokens": 2,
+            "estimated_cost": 2.1316960000000003e-05,
+            "prompt_tokens_details": {
+              "cached_tokens": 3584,
+              "cache_write_tokens": null
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        }
+      ],
+      "cache_hit_on_repeat": true,
+      "problems": []
+    },
+    {
+      "side": "commandcode-goat",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "model_listed": true,
+      "tool_call": {
+        "status": 200,
+        "model": "deepseek/deepseek-v4.1-flash",
+        "provider": null,
+        "ttft_s": 1.71,
+        "latency_s": 1.89,
+        "error": null,
+        "usage": {
+          "prompt_tokens": 312,
+          "completion_tokens": 49,
+          "total_tokens": 361,
+          "prompt_tokens_details": {
+            "audio_tokens": 0,
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "text_tokens": 0,
+            "image_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "audio_tokens": 0,
+            "reasoning_tokens": 0,
+            "accepted_prediction_tokens": 0,
+            "rejected_prediction_tokens": 0,
+            "text_tokens": 0,
+            "image_tokens": 0,
+            "video_tokens": 0
+          }
+        },
+        "calls": [
+          {
+            "name": "read_file",
+            "args": "{\"path\": \"ledger/money.py\"}"
+          }
+        ]
+      },
+      "caching": [
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3713,
+            "completion_tokens": 2,
+            "total_tokens": 3715,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0,
+              "text_tokens": 0,
+              "image_tokens": 0,
+              "video_tokens": 0
+            },
+            "completion_tokens_details": {
+              "audio_tokens": 0,
+              "reasoning_tokens": 0,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0,
+              "text_tokens": 0,
+              "image_tokens": 0,
+              "video_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        },
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3713,
+            "completion_tokens": 15,
+            "total_tokens": 3728,
+            "prompt_tokens_details": {
+              "audio_tokens": 0,
+              "cached_tokens": 2048,
+              "cache_write_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0,
+              "text_tokens": 0,
+              "image_tokens": 0,
+              "video_tokens": 0
+            },
+            "completion_tokens_details": {
+              "audio_tokens": 0,
+              "reasoning_tokens": 13,
+              "accepted_prediction_tokens": 0,
+              "rejected_prediction_tokens": 0,
+              "text_tokens": 0,
+              "image_tokens": 0,
+              "video_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        }
+      ],
+      "cache_hit_on_repeat": true,
+      "problems": []
+    }
+  ]
+}

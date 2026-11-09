@@ -1,0 +1,2 @@
+I'll find the Money class and its tests.
+Fixed `Money.split` in ledger/money.py:40 to distribute whole cents, assigning extras to the earliest parts and handling negatives symmetrically. All 4 tests pass.

@@ -1,0 +1,36 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f | grep -v .git | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:31 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:31 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  8 22:31 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+..............................                                           [100%]
+30 passed in 4.07s
+[0m

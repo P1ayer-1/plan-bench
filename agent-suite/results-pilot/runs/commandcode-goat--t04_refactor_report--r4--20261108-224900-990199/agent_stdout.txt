@@ -1,0 +1,1 @@
+Implemented `group_by_month`, `totals_by_category`, and `category_share` in `ledger/report.py:4`, refactored `monthly_summary` to use the helpers, and verified all 4 tests pass.

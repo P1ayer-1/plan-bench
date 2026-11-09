@@ -1,0 +1,2 @@
+I'll explore the codebase first.
+Done. Added `tag=` filtering to `Ledger.query()` and `Ledger.tags()` in ledger/ledger.py:22. All 4 tests pass.

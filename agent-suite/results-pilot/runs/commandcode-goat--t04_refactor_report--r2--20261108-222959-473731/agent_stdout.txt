@@ -1,0 +1,2 @@
+I'll start by exploring the codebase.
+Implemented all four changes in `ledger/report.py`; `monthly_summary` output is unchanged, and all 4 tests pass.

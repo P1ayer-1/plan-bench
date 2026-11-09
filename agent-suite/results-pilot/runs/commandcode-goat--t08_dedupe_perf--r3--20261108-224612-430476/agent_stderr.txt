@@ -1,0 +1,65 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -type f -name "*.py" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:46 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:46 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  8 22:46 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261108-224612-430476/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261108-224612-430476/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t08_dedupe_perf--r3--20261108-224612-430476/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.63s
+[0m
+[0m$ [0mpython - <<'PY'
+import time, random
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+random.seed(0)
+txs=[]
+d0=date(2020,1,1)
+for i in range(200000):
+    txs.append(Transaction(d0+timedelta(days=random.randrange(1000)), f"desc{random.randrange(5000)}", Money(str(random.randrange(-100000,100000)/100)), "cat"))
+l=Ledger(txs)
+s=time.perf_counter(); r=l.dedupe(); e=time.perf_counter()
+print(f"{e-s:.3f}s", len(l.transactions), r is l)
+PY
+0.876s 200000 True
+[0m

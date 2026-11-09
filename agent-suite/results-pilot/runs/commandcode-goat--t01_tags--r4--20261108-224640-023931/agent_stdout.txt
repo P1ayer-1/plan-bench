@@ -1,0 +1,1 @@
+Done. Added `tag` filter to `query()` and a `tags()` method returning sorted distinct tags. All 4 tests pass.

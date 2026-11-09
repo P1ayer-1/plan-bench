@@ -1,0 +1,1 @@
+All 30 tests pass. `tests/test_report.py` covers month/category grouping, year boundaries, zero-padding, key ordering, netting and precision for `monthly_summary`; and negative filtering, sort order, default/custom/edge `n`, ties, and non-mutation for `largest_expenses`.

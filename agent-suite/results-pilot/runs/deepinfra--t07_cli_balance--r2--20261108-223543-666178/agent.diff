@@ -1,0 +1,86 @@
+diff --git a/ledger/cli.py b/ledger/cli.py
+index dde6829..700baf5 100644
+--- a/ledger/cli.py
++++ b/ledger/cli.py
+@@ -1,23 +1,48 @@
+ import argparse, sys
++from datetime import date
+ from .ledger import Ledger
++from .money import Money
+ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
++def _parse_date(value):
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        raise argparse.ArgumentTypeError(
++            f"invalid date: {value!r} (expected YYYY-MM-DD)"
++        )
++
++
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
++
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++
++    b = sub.add_parser("balance", help="balance for matching transactions")
++    b.add_argument("file")
++    b.add_argument("--since", type=_parse_date, dest="start")
++    b.add_argument("--until", type=_parse_date, dest="end")
++    b.add_argument("--category")
++
+     args = ap.parse_args(argv)
+ 
+     with open(args.file) as f:
+         ledger = Ledger(parse_csv(f.read()))
++
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+                 print(f"  {cat}: {total}")
++    elif args.cmd == "balance":
++        total = Money.zero()
++        for tx in ledger.query(category=args.category, start=args.start, end=args.end):
++            total = total + tx.amount
++        print(f"Balance: {total.amount:.2f} {total.currency}")
+     return 0
+ 
+ 
+diff --git a/tests/test_basic.py b/tests/test_basic.py
+index d0a7e00..fd67887 100644
+--- a/tests/test_basic.py
++++ b/tests/test_basic.py
+@@ -29,3 +29,28 @@ def test_summary():
+     s = monthly_summary(Ledger(parse_csv(CSV)))
+     assert list(s) == ["2026-01", "2026-02"]
+     assert s["2026-02"]["housing"] == Money("-1200.00")
++
++
++def test_cli_balance(tmp_path, capsys):
++    from ledger.cli import main
++    p = tmp_path / "t.csv"
++    p.write_text(CSV)
++    assert main(["balance", str(p)]) == 0
++    assert capsys.readouterr().out == "Balance: 1795.50 USD\n"
++    assert main(["balance", str(p), "--since", "2026-02-01", "--until", "2026-02-28"]) == 0
++    assert capsys.readouterr().out == "Balance: -1200.00 USD\n"
++    assert main(["balance", str(p), "--category", "food"]) == 0
++    assert capsys.readouterr().out == "Balance: -4.50 USD\n"
++    assert main(["balance", str(p), "--category", "nope"]) == 0
++    assert capsys.readouterr().out == "Balance: 0.00 USD\n"
++
++
++def test_cli_balance_invalid_date(tmp_path, capsys):
++    import pytest
++    from ledger.cli import main
++    p = tmp_path / "t.csv"
++    p.write_text(CSV)
++    with pytest.raises(SystemExit) as exc:
++        main(["balance", str(p), "--since", "not-a-date"])
++    assert exc.value.code == 2
++    assert capsys.readouterr().err

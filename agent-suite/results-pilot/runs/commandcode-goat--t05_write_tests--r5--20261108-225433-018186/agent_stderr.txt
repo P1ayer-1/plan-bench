@@ -1,0 +1,152 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m→ [0mRead ledger/report.py
+[0m
+[0m$ [0mls -la && find . -type f -not -path './.git/*' | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:54 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:54 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  8 22:54 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead README.md
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead ledger/cli.py
+[0m
+[0m$ [0mpython -m pytest -q 2>&1 | tail -20 && python --version
+....                                                                     [100%]
+4 passed in 0.77s
+Python 3.11.2
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+.............F..................                                         [100%]
+=================================== FAILURES ===================================
+__________ test_monthly_summary_sums_exact_cents_without_float_drift ___________
+
+    def test_monthly_summary_sums_exact_cents_without_float_drift():
+        summary = monthly_summary(
+            ledger(
+                tx("2026-06-01", "0.10", "cash"),
+                tx("2026-06-02", "0.20", "cash"),
+            )
+        )
+    
+        assert summary["2026-06"]["cash"] == Money("0.30")
+>       assert summary["2026-06"]["cash"].amount == pytest.approx(0.30)
+
+tests/test_report.py:143: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = 0.3 ± 3.0e-07, actual = Decimal('0.30')
+
+    def __eq__(self, actual) -> bool:
+        """Return whether the given value is equal to the expected value
+        within the pre-specified tolerance."""
+        asarray = _as_numpy_array(actual)
+        if asarray is not None:
+            # Call ``__eq__()`` manually to prevent infinite-recursion with
+            # numpy<1.13.  See #3748.
+            return all(self.__eq__(a) for a in asarray.flat)
+    
+        # Short-circuit exact equality, except for bool
+        if isinstance(self.expected, bool) and not isinstance(actual, bool):
+            return False
+        elif actual == self.expected:
+            return True
+    
+        # If either type is non-numeric, fall back to strict equality.
+        # NB: we need Complex, rather than just Number, to ensure that __abs__,
+        # __sub__, and __float__ are defined. Also, consider bool to be
+        # nonnumeric, even though it has the required arithmetic.
+        if isinstance(self.expected, bool) or not (
+            isinstance(self.expected, (Complex, Decimal))
+            and isinstance(actual, (Complex, Decimal))
+        ):
+            return False
+    
+        # Allow the user to control whether NaNs are considered equal to each
+        # other or not.  The abs() calls are for compatibility with complex
+        # numbers.
+        if math.isnan(abs(self.expected)):
+            return self.nan_ok and math.isnan(abs(actual))
+    
+        # Infinity shouldn't be approximately equal to anything but itself, but
+        # if there's a relative tolerance, it will be infinite and infinity
+        # will seem approximately equal to everything.  The equal-to-itself
+        # case would have been short circuited above, so here we can just
+        # return false if the expected value is infinite.  The abs() call is
+        # for compatibility with complex numbers.
+        if math.isinf(abs(self.expected)):
+            return False
+    
+        # Return true if the two numbers are within the tolerance.
+>       result: bool = abs(self.expected - actual) <= self.tolerance
+E       TypeError: unsupported operand type(s) for -: 'float' and 'decimal.Decimal'
+
+/venv/lib/python3.11/site-packages/_pytest/python_api.py:467: TypeError
+=========================== short test summary info ============================
+FAILED tests/test_report.py::test_monthly_summary_sums_exact_cents_without_float_drift
+1 failed, 31 passed in 0.74s
+[0m
+[0m← [0mEdit tests/test_report.py
+Index: /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
++++ /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
+@@ -1,8 +1,7 @@
+ from datetime import date
++from decimal import Decimal
+ 
+-import pytest
+-
+ from ledger import Ledger, Money, Transaction
+ from ledger.report import largest_expenses, monthly_summary
+ 
+ 
+
+[0m
+[0m← [0mEdit tests/test_report.py
+Index: /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
++++ /suite/results/runs/commandcode-goat--t05_write_tests--r5--20261108-225433-018186/ws/tests/test_report.py
+@@ -138,9 +138,9 @@
+         )
+     )
+ 
+     assert summary["2026-06"]["cash"] == Money("0.30")
+-    assert summary["2026-06"]["cash"].amount == pytest.approx(0.30)
++    assert summary["2026-06"]["cash"].amount == Decimal("0.30")
+ 
+ 
+ def test_monthly_summary_only_groups_by_date_not_description_or_tags():
+     summary = monthly_summary(
+
+[0m
+[0m$ [0mpython -m pytest -q
+................................                                         [100%]
+32 passed in 0.44s
+[0m
+[0m$ [0mgit status --short && git diff --stat
+?? tests/test_report.py
+[0m

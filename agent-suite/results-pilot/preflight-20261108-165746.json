@@ -1,0 +1,77 @@
+{
+  "ts": "2026-11-08T21:57:46.478090+00:00",
+  "reports": [
+    {
+      "side": "deepinfra",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "model_listed": true,
+      "tool_call": {
+        "status": 200,
+        "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        "provider": null,
+        "ttft_s": 0.96,
+        "latency_s": 1.03,
+        "error": null,
+        "usage": {
+          "prompt_tokens": 287,
+          "total_tokens": 329,
+          "completion_tokens": 42,
+          "estimated_cost": 4.0474e-05,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": null
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        },
+        "calls": [
+          {
+            "name": "read_file",
+            "args": "{\"path\": \"ledger/money.py\"}"
+          }
+        ]
+      },
+      "caching": [
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3688,
+            "total_tokens": 3690,
+            "completion_tokens": 2,
+            "estimated_cost": 0.00036201200000000004,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": null
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        },
+        {
+          "status": 200,
+          "usage": {
+            "prompt_tokens": 3688,
+            "total_tokens": 3690,
+            "completion_tokens": 2,
+            "estimated_cost": 2.1316960000000003e-05,
+            "prompt_tokens_details": {
+              "cached_tokens": 3584,
+              "cache_write_tokens": null
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "provider": null,
+          "error": null
+        }
+      ],
+      "cache_hit_on_repeat": true,
+      "problems": []
+    }
+  ]
+}

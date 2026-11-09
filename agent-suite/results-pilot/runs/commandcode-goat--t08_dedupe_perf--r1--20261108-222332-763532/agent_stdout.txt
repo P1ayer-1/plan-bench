@@ -1,0 +1,1 @@
+Replaced the O(n²) list rebuild with a `set` lookup in `ledger/ledger.py:41`. Tests pass; 200k transactions dedupe in ~0.19s.

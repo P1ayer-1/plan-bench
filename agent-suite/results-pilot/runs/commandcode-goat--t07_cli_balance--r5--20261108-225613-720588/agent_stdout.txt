@@ -1,0 +1,1 @@
+Added `balance` with `--since`, `--until`, `--category`, inclusive filtering, zero fallback, and status-2 invalid-date errors. `summary` unchanged. All 4 tests pass.

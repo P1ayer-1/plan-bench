@@ -1,0 +1,1 @@
+Done. `Money.split(n)` now distributes cents exactly, with extras going to the earliest parts and correct handling for negatives and invalid `n`. All 4 tests pass.

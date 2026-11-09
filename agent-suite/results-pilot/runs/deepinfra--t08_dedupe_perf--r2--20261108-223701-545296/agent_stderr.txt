@@ -1,0 +1,150 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -la && git status && grep -rn "def dedupe" . --include=*.py
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:37 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:37 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 653 Nov  8 22:37 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+On branch master
+nothing to commit, working tree clean
+./ledger/ledger.py:41:    def dedupe(self):
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m
+[0m$ [0mcat README.md && ls tests && grep -rn "dedupe" tests
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+test_basic.py
+[0m
+[0m$ [0mcat ledger/money.py; cat tests/test_basic.py
+from decimal import Decimal, ROUND_HALF_UP
+
+CENT = Decimal("0.01")
+
+
+class Money:
+    """An amount of money in a single currency, stored to the cent."""
+
+    def __init__(self, amount, currency="USD"):
+        self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+        self.currency = currency
+
+    def __add__(self, other):
+        return Money(self.amount + other.amount, self.currency)
+
+    def __sub__(self, other):
+        return Money(self.amount - other.amount, self.currency)
+
+    def __mul__(self, factor):
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    def __neg__(self):
+        return Money(-self.amount, self.currency)
+
+    def __eq__(self, other):
+        return isinstance(other, Money) and self.amount == other.amount and self.currency == other.currency
+
+    def __hash__(self):
+        return hash((self.amount, self.currency))
+
+    def __lt__(self, other):
+        return self.amount < other.amount
+
+    def __repr__(self):
+        return f"Money('{self.amount}', '{self.currency}')"
+
+    def __str__(self):
+        return f"{self.amount} {self.currency}"
+
+    def split(self, n):
+        """Split into n parts."""
+        part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+        return [Money(part, self.currency) for _ in range(n)]
+
+    @classmethod
+    def zero(cls, currency="USD"):
+        return cls(0, currency)
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t08_dedupe_perf--r2--20261108-223701-545296/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t08_dedupe_perf--r2--20261108-223701-545296/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t08_dedupe_perf--r2--20261108-223701-545296/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+import time
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+txs=[Transaction(date(2026,1,1)+timedelta(days=i%300),f'd{i%50000}',Money(i%1000)) for i in range(200000)]
+l=Ledger(txs); t=time.time(); l.dedupe(); print(time.time()-t, len(l.transactions))"
+....                                                                     [100%]
+4 passed in 1.99s
+Traceback (most recent call last):
+  File "<string>", line 5, in <module>
+  File "<string>", line 5, in <listcomp>
+TypeError: Transaction.__init__() missing 1 required positional argument: 'category'
+[0m
+[0m$ [0mpython -c "
+import time
+from datetime import date, timedelta
+from ledger import Ledger, Transaction, Money
+txs=[Transaction(date(2026,1,1)+timedelta(days=i%300),f'd{i%50000}',Money(i%1000),'c') for i in range(200000)]
+l=Ledger(txs); t=time.time(); l.dedupe(); print(time.time()-t, len(l.transactions))"
+0.6997766494750977 150000
+[0m

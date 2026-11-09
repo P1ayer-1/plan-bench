@@ -1,0 +1,8 @@
+Implemented multi-currency safety:
+
+- Added `CurrencyMismatch(ValueError)` with checks in `Money.__add__`, `__sub__`, and `__lt__`; exported it from `ledger`.
+- `Ledger.balance()` now returns `{currency: Money}`, or `{}` for empty ledgers.
+- `monthly_summary` groups mixed-currency months by `(category, currency)`, while single-currency months keep plain category keys.
+- Updated CLI rendering and tests for the new behavior.
+
+`python -m pytest -q`: **8 passed**.

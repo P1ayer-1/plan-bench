@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 32 passing tests covering month grouping, key formatting/sorting, per-category sums, sign handling, empty/zero/negative `n`, sorting, ties, and non-mutation for both functions.

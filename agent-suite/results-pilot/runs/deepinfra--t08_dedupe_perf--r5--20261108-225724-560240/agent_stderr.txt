@@ -1,0 +1,58 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R | head -50; grep -rn "def dedupe" .
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+./ledger/ledger.py:41:    def dedupe(self):
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/deepinfra--t08_dedupe_perf--r5--20261108-225724-560240/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/deepinfra--t08_dedupe_perf--r5--20261108-225724-560240/ws/ledger/ledger.py
++++ /suite/results/runs/deepinfra--t08_dedupe_perf--r5--20261108-225724-560240/ws/ledger/ledger.py
+@@ -40,11 +40,13 @@
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
++    seen = set()
+     result = []
+     for tx in self.transactions:
+         key = (tx.date, tx.description, tx.amount)
+-        if key not in [(t.date, t.description, t.amount) for t in result]:
++        if key not in seen:
++            seen.add(key)
+             result.append(tx)
+     self.transactions = result
+     return self
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+import time
+from datetime import date
+from ledger.ledger import Ledger, Transaction
+from ledger.money import Money
+txs=[Transaction(date(2020,1,1), 'd%d'%i, Money(i%1000), 'c') for i in range(200000)]
+l=Ledger(txs); t=time.time(); r=l.dedupe(); print(time.time()-t, len(l.transactions), r is l)"
+....                                                                     [100%]
+4 passed in 0.42s
+0.4612438678741455 200000 True
+[0m

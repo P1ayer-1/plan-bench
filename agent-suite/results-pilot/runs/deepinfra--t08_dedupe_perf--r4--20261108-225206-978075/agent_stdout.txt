@@ -1,0 +1,1 @@
+Fixed by replacing the O(n²) list scan with a `set` for membership checks (`ledger/ledger.py:41`). Behaviour unchanged; 200k transactions dedupe in ~0.8s and all tests pass.

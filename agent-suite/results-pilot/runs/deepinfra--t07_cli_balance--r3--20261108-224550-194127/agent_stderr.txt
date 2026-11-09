@@ -1,0 +1,92 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R . | head -50
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/deepinfra--t07_cli_balance--r3--20261108-224550-194127/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/deepinfra--t07_cli_balance--r3--20261108-224550-194127/ws/ledger/cli.py
++++ /suite/results/runs/deepinfra--t07_cli_balance--r3--20261108-224550-194127/ws/ledger/cli.py
+@@ -1,24 +1,47 @@
+ import argparse, sys
++from datetime import date
+ from .ledger import Ledger
++from .money import Money
+ from .parser import parse_csv
+ from .report import monthly_summary
+ 
+ 
++def _parse_date(value):
++    try:
++        return date.fromisoformat(value)
++    except ValueError:
++        print(f"error: invalid date: {value}", file=sys.stderr)
++        sys.exit(2)
++
++
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="ledger")
+     sub = ap.add_subparsers(dest="cmd", required=True)
+     s = sub.add_parser("summary", help="monthly category summary")
+     s.add_argument("file")
++    b = sub.add_parser("balance", help="balance for filtered transactions")
++    b.add_argument("file")
++    b.add_argument("--since")
++    b.add_argument("--until")
++    b.add_argument("--category")
+     args = ap.parse_args(argv)
+ 
++    since = _parse_date(args.since) if getattr(args, "since", None) else None
++    until = _parse_date(args.until) if getattr(args, "until", None) else None
++
+     with open(args.file) as f:
+         ledger = Ledger(parse_csv(f.read()))
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+                 print(f"  {cat}: {total}")
++    elif args.cmd == "balance":
++        total = Money.zero()
++        for tx in ledger.query(category=args.category, start=since, end=until):
++            total = total + tx.amount
++        print(f"Balance: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m$ [0mpython -m pytest -q && printf 'date,description,amount,category,tags\n2026-01-01,A,-1204.50,food,\n' > /tmp/t.csv && python -m ledger.cli balance /tmp/t.csv && python -m ledger.cli balance /tmp/t.csv --since 2026-01-02; echo "exit=$?"; python -m ledger.cli balance /tmp/t.csv --since nope; echo "exit=$?"
+....                                                                     [100%]
+4 passed in 7.28s
+Balance: -1204.50 USD
+Balance: 0.00 USD
+exit=0
+error: invalid date: nope
+exit=2
+[0m

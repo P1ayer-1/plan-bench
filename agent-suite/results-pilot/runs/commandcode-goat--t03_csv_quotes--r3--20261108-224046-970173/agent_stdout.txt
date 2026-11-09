@@ -1,0 +1,1 @@
+Done. `ledger/parser.py` now uses the `csv` module for proper quoting, doubled quotes, CRLF, optional trailing `tags`, and line-numbered `ValueError`s for malformed rows. Tests pass (4 passed).

@@ -1,0 +1,9 @@
+Now implementing.
+Update CLI to handle both key shapes:
+Add tests for new behavior:
+Done. All 7 tests pass.
+
+- `ledger/money.py`: added `CurrencyMismatch(ValueError)`; `__add__`, `__sub__`, `__lt__` check currency.
+- `ledger/ledger.py`: `balance()` returns `{currency: Money}`, `{}` when empty.
+- `ledger/report.py`: `monthly_summary` uses `(category, currency)` keys only for multi-currency months.
+- CLI and tests updated; `CurrencyMismatch` exported from `ledger`.

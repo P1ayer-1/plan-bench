@@ -1,0 +1,33 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m→ [0mRead ledger/report.py
+[0m
+[0m$ [0mfind . -type f -not -path './.git/*' | sort
+./README.md
+./ledger/__init__.py
+./ledger/cli.py
+./ledger/ledger.py
+./ledger/money.py
+./ledger/parser.py
+./ledger/report.py
+./opencode.json
+./tests/test_basic.py
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead README.md
+[0m→ [0mRead ledger/__init__.py
+[0m
+[0m← [0mWrite tests/test_report.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+....................................                                     [100%]
+36 passed in 7.01s
+[0m
+[0m$ [0mgit status --short
+?? tests/test_report.py
+[0m

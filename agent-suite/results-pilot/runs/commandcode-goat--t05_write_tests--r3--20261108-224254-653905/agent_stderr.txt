@@ -1,0 +1,64 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m→ [0mRead ledger/report.py
+[0m
+[0m$ [0mfind . -type f -name "*.py" | head -50 && echo "---" && ls -la
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+---
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:42 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:42 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 635 Nov  8 22:43 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+[0m
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m$ [0mcat ledger/__init__.py; echo "---"; cat README.md; echo "---"; cat opencode.json; echo "---"; python -m pytest -q 2>&1 | tail -20
+from .money import Money
+from .ledger import Ledger, Transaction
+---
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+---
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "provider": {
+    "bench": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "bench",
+      "options": {
+        "baseURL": "http://127.0.0.1:8899/commandcode-goat/run/commandcode-goat--t05_write_tests--r3--20261108-224254-653905/v1",
+        "apiKey": "proxy-injects-real-key"
+      },
+      "models": {
+        "deepseek/deepseek-v4.1-flash": {
+          "name": "deepseek/deepseek-v4.1-flash"
+        }
+      }
+    }
+  },
+  "model": "bench/deepseek/deepseek-v4.1-flash",
+  "small_model": "bench/deepseek/deepseek-v4.1-flash"
+}---
+....                                                                     [100%]
+4 passed in 0.42s
+[0m

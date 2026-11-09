@@ -1,0 +1,13 @@
+I'll start by examining the codebase to understand the functions I need to test.
+Let me read the supporting modules to understand the data model.
+Now I understand the model. Let me note the key behaviors to test:
+
+- `monthly_summary`: groups by year-month, sums per category, includes income (positive), sorted keys, empty ledger → `{}`, accrues mixed currencies by first tx currency (I'll avoid cross-currency).
+- `largest_expenses`: filters only negatives (excludes zero and positive), sorts most negative first, `n` default 3, `n` larger than list, `n=0` → empty, stable tie-breaking.
+
+Let me write the tests.
+`largest_expenses` works on individual transactions, not aggregates. My expectations were wrong: the individual expenses are Rent -1200, Groceries -120.25, Dinner -85, Gift -50, Coffee -4.50... Let me fix those assertions.
+All 26 tests pass. Wrote `tests/test_report.py` covering:
+
+- **`monthly_summary`**: empty ledger, sorted `YYYY-MM` keys, zero-padded months, per-category summing within a month, cross-month separation, mixed signs, same-day transactions, and a full-dict equality check.
+- **`largest_expenses`**: default `n=3`, most-negative-first ordering, exclusion of income/zero, `n` smaller/larger than list, `n=0`/`n=1`, empty ledger, and magnitude-based sorting.

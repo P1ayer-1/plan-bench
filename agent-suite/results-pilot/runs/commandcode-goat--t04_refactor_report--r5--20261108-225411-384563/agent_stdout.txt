@@ -1,0 +1,9 @@
+I'll start by exploring the repository structure and understanding the existing code.
+Implemented in `ledger/report.py`:
+
+- `group_by_month(transactions)` — sorted month keys, original transaction order preserved.
+- `totals_by_category(transactions)` — category totals as `Money`.
+- `monthly_summary(ledger)` — now composed from both helpers, output unchanged.
+- `category_share(ledger, month)` — spending-only category fractions, omitting non-spending categories and returning `{}` for months without spending.
+
+`python -m pytest -q` passes: 4 tests.

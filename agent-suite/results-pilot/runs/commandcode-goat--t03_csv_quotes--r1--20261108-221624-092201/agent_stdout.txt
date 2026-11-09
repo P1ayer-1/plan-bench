@@ -1,0 +1,3 @@
+Fixed `ledger/parser.py` to use the `csv` module for proper quoting (`""` escapes, embedded commas), Windows line endings, optional trailing `tags` column, and line-numbered `ValueError`s for malformed rows.
+
+`python -m pytest -q` — 4 passed.

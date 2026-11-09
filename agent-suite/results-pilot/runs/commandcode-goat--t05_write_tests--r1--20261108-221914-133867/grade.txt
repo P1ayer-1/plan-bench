@@ -1,0 +1,1 @@
+killed 6/6 mutants

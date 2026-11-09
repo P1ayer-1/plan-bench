@@ -1,0 +1,8 @@
+Add proper multi-currency safety:
+
+1. In `ledger/money.py` add `class CurrencyMismatch(ValueError)`. Adding, subtracting or comparing (`<`) two `Money` values with different currencies must raise it.
+2. `Ledger.balance()` should return a dict mapping currency -> `Money` total instead of a single `Money` (empty ledger returns `{}`).
+3. `monthly_summary` must keep working with mixed currencies: group by month, then by `(category, currency)` tuple keys **only when a month contains more than one currency**; months with a single currency keep plain category keys.
+4. Update the CLI and existing tests as needed so everything passes.
+
+Export `CurrencyMismatch` from the `ledger` package.

@@ -1,0 +1,8 @@
+Now update CLI display and tests.
+All tests pass (4 passed). Changes:
+
+- `ledger/money.py:6` — added `CurrencyMismatch(ValueError)`; `+`, `-`, and `<` now raise it on differing currencies.
+- `ledger/ledger.py` — `balance()` returns `{currency: Money}`, `{}` for empty ledger.
+- `ledger/report.py` — `monthly_summary` uses `(category, currency)` keys only for months with multiple currencies.
+- `ledger/cli.py` — handles tuple keys, printing `category (CUR): total`.
+- `ledger/__init__.py` — exports `CurrencyMismatch`; updated the balance test.

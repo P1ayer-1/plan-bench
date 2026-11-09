@@ -1,0 +1,44 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m→ [0mRead ledger/parser.py
+[0m
+[0m$ [0mls -R .
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead README.md
+[0m
+[0m← [0mWrite ledger/parser.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q && python -c '
+from ledger.parser import parse_csv
+print(parse_csv("date,description,amount,category,tags\n2026-03-02,\"Dinner, with friends\",-58.20,food,social\n"))
+print(parse_csv("date,description,amount,category,tags\r\n2026-03-02,\"He said \"\"hi\"\"\",-1,x\r\n"))
+try:
+    parse_csv("date,description,amount,category,tags\n2026-03-02,a,-1,x,,")
+except ValueError as e: print(e)
+'
+....                                                                     [100%]
+4 passed in 1.81s
+[Transaction(date=datetime.date(2026, 3, 2), description='Dinner, with friends', amount=Money('-58.20', 'USD'), category='food', tags=('social',))]
+[Transaction(date=datetime.date(2026, 3, 2), description='He said "hi"', amount=Money('-1.00', 'USD'), category='x', tags=())]
+line 2: expected 4 or 5 fields, got 6
+[0m

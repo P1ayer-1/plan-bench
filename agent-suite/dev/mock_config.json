@@ -1,0 +1,42 @@
+{
+  "extends": "../suite_config.json",
+  "proxy_port": 8898,
+  "proxy_log": "dev/results-mock/proxy_log.jsonl",
+  "results_dir": "dev/results-mock",
+  "max_repeats": 2,
+  "agent_timeout_s": 300,
+  "sides": [
+    {
+      "name": "deepinfra",
+      "base_url": "http://127.0.0.1:9100/or/v1",
+      "api_key_env": "MOCK_API_KEY",
+      "budget_usd": 0.004
+    },
+    {
+      "name": "commandcode-goat",
+      "base_url": "http://127.0.0.1:9100/cc/v1",
+      "api_key_env": "MOCK_API_KEY",
+      "cap_policy": {
+        "wait_on_cap_minutes": 1,
+        "max_cap_waits": 1,
+        "reset_margin_s": 5
+      }
+    },
+    {
+      "name": "deepinfra-reasoning",
+      "base_url": "http://127.0.0.1:9100/or/v1",
+      "api_key_env": "MOCK_API_KEY",
+      "budget_usd": 0.004
+    },
+    {
+      "name": "commandcode-goat-noreasoning",
+      "base_url": "http://127.0.0.1:9100/cc/v1",
+      "api_key_env": "MOCK_API_KEY",
+      "cap_policy": {
+        "wait_on_cap_minutes": 1,
+        "max_cap_waits": 1,
+        "reset_margin_s": 5
+      }
+    }
+  ]
+}

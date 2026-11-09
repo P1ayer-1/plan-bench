@@ -1,0 +1,3 @@
+I'll start by examining the codebase to understand the functions.
+Now I'll write comprehensive tests based on the exact behaviors.
+Created `tests/test_report.py` with 28 passing tests covering month/category grouping, chronological sorting, year boundaries, zero-padded keys, sign and cent handling, currency preservation, and `largest_expenses` ordering, filtering, limits, ties, and non-mutation. `python -m pytest -q` passes.

@@ -1,0 +1,1 @@
+Done. `query()` accepts `tag` (all filters combine) and `tags()` returns a sorted distinct list.

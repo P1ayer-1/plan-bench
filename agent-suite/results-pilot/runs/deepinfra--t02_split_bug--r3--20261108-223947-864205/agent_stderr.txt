@@ -1,0 +1,72 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls -R | head -50; git log --oneline -3
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+3d11327 base
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m$ [0mgrep -rn "split" tests ledger
+ledger/parser.py:11:    lines = [l for l in text.strip().splitlines() if l.strip()]
+ledger/parser.py:14:    header = [h.strip() for h in lines[0].split(",")]
+ledger/parser.py:19:        d, desc, amt, cat, tags = line.split(",")
+ledger/parser.py:25:            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+ledger/money.py:40:    def split(self, n):
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra--t02_split_bug--r3--20261108-223947-864205/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra--t02_split_bug--r3--20261108-223947-864205/ws/ledger/money.py
++++ /suite/results/runs/deepinfra--t02_split_bug--r3--20261108-223947-864205/ws/ledger/money.py
+@@ -37,11 +37,20 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts whose total equals the original amount."""
++    if n <= 0:
++        raise ValueError("cannot split into zero or fewer parts")
++    total_cents = int((self.amount / CENT).to_integral_value())
++    sign = -1 if total_cents < 0 else 1
++    magnitude = abs(total_cents)
++    base, extra = divmod(magnitude, n)
++    parts = []
++    for i in range(n):
++        cents = base + (1 if i < extra else 0)
++        parts.append(Money(Decimal(sign * cents) * CENT, self.currency))
++    return parts
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -c "
+from ledger.money import Money
+print([str(x) for x in Money('10.00').split(3)])
+print([str(x) for x in Money('-10.00').split(3)])
+" && python -m pytest -q
+['3.34 USD', '3.33 USD', '3.33 USD']
+['-3.34 USD', '-3.33 USD', '-3.33 USD']
+....                                                                     [100%]
+4 passed in 1.96s
+[0m

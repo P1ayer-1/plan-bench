@@ -1,0 +1,55 @@
+[0m
+> build · deepseek-ai/DeepSeek-V4.1-Flash-1017
+[0m
+[0m$ [0mls; grep -rn "def split" .
+README.md
+ledger
+opencode.json
+tests
+./ledger/money.py:40:    def split(self, n):
+[0m
+[0m$ [0mgrep -rn "split" tests
+(no output)
+[0m
+[0m→ [0mRead ledger/money.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/deepinfra--t02_split_bug--r1--20261108-221440-841219/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/deepinfra--t02_split_bug--r1--20261108-221440-841219/ws/ledger/money.py
++++ /suite/results/runs/deepinfra--t02_split_bug--r1--20261108-221440-841219/ws/ledger/money.py
+@@ -37,11 +37,17 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts, distributing leftover cents to the earliest parts."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    total_cents = int(self.amount / CENT)
++    sign = -1 if total_cents < 0 else 1
++    cents = abs(total_cents)
++    base, remainder = divmod(cents, n)
++    parts = [sign * (base + 1) if i < remainder else sign * base for i in range(n)]
++    return [Money(Decimal(part) * CENT, self.currency) for part in parts]
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger.money import Money
+for a in ['10.00','-10.00','0.05','0.01']:
+ print(a, [str(m) for m in Money(a).split(3)], sum(m.amount for m in Money(a).split(3)))
+"
+....                                                                     [100%]
+4 passed in 0.31s
+10.00 ['3.34 USD', '3.33 USD', '3.33 USD'] 10.00
+-10.00 ['-3.34 USD', '-3.33 USD', '-3.33 USD'] -10.00
+0.05 ['0.02 USD', '0.02 USD', '0.01 USD'] 0.05
+0.01 ['0.01 USD', '0.00 USD', '0.00 USD'] 0.01
+[0m

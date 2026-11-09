@@ -1,0 +1,1 @@
+Added `balance` to `ledger/cli.py` with inclusive `--since`/`--until` and `--category` filters. Invalid dates emit an argparse error to stderr and exit 2; `summary` is unchanged. All 4 tests pass.

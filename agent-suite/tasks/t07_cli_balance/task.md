@@ -1,0 +1,5 @@
+Add a `balance` command to the CLI (`ledger/cli.py`):
+
+    python -m ledger.cli balance FILE [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--category NAME]
+
+It prints exactly one line: `Balance: <amount> <currency>` (e.g. `Balance: -1204.50 USD`) for the transactions that match the filters (dates inclusive). With no matching transactions print `Balance: 0.00 USD`. An invalid date should print an error to stderr and exit with status 2. Existing `summary` command must keep working.

@@ -1,0 +1,2 @@
+I'll start by exploring the repository structure and understanding the current parser.
+Done. `ledger/parser.py` now uses the `csv` module for standard quoting (commas in quoted fields, `""` escapes), handles `\r\n`, treats a 4-field row as having no tags, and raises `ValueError` with the physical 1-based line number for wrong field counts. All 4 tests pass.

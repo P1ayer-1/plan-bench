@@ -1,0 +1,7 @@
+I'll start by exploring the codebase to understand the code to test.
+Now I understand the API. Let me write a comprehensive test file.
+Created `tests/test_report.py` with 36 tests covering month grouping/ordering, category separation and netting, sign handling, cent precision, currency, immutability, and `largest_expenses` sorting/filtering/limits/ties. All pass:
+
+```
+36 passed in 7.01s
+```

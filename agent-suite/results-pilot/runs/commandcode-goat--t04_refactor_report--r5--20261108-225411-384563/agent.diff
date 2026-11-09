@@ -1,0 +1,69 @@
+diff --git a/ledger/report.py b/ledger/report.py
+index 0f3c778..0eef1a3 100644
+--- a/ledger/report.py
++++ b/ledger/report.py
+@@ -1,19 +1,55 @@
++from decimal import Decimal
++
+ from .money import Money
+ 
+ 
+-def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++def group_by_month(transactions):
++    """Return {"YYYY-MM": [transactions]} with months in sorted order."""
+     result = {}
+-    for tx in ledger.transactions:
+-        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++    for tx in transactions:
++        month = f"{tx.date.year:04d}-{tx.date.month:02d}"
++        result.setdefault(month, []).append(tx)
+     return dict(sorted(result.items()))
+ 
+ 
++def totals_by_category(transactions):
++    """Return {category: Money} with each category's amounts summed."""
++    result = {}
++    for tx in transactions:
++        if tx.category not in result:
++            result[tx.category] = Money.zero(tx.amount.currency)
++        result[tx.category] = result[tx.category] + tx.amount
++    return result
++
++
++def monthly_summary(ledger):
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
++    return {
++        month: totals_by_category(transactions)
++        for month, transactions in group_by_month(ledger.transactions).items()
++    }
++
++
++def category_share(ledger, month):
++    """Return {category: fraction} of a month's total spending.
++
++    Only negative amounts count as spending, compared by absolute value.
++    Categories without spending are omitted; a month with no spending is {}.
++    """
++    spending = {}
++    for tx in group_by_month(ledger.transactions).get(month, []):
++        if tx.amount.amount < 0:
++            spent = -tx.amount
++            if tx.category not in spending:
++                spending[tx.category] = Money.zero(spent.currency)
++            spending[tx.category] = spending[tx.category] + spent
++
++    total = sum((money.amount for money in spending.values()), Decimal("0"))
++    if total == 0:
++        return {}
++    return {category: float(money.amount / total) for category, money in spending.items()}
++
++
+ def largest_expenses(ledger, n=3):
+     """Return the n most negative transactions, most negative first."""
+     expenses = [tx for tx in ledger.transactions if tx.amount.amount < 0]

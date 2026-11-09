@@ -1,0 +1,8 @@
+Refactor `ledger/report.py` so the logic in `monthly_summary` is reusable:
+
+1. Add `group_by_month(transactions)` returning a dict mapping `"YYYY-MM"` to the list of transactions in that month (in original order), with keys sorted.
+2. Add `totals_by_category(transactions)` returning a dict mapping category to the summed `Money`.
+3. Rewrite `monthly_summary(ledger)` to use these two functions. Its output must not change.
+4. Add `category_share(ledger, month)` returning a dict of category -> fraction (float, 0..1) of that month's total *spending* (negative amounts only, compared by absolute value). Categories with no spending are omitted. If the month has no spending return `{}`.
+
+Keep all existing behaviour and tests passing.

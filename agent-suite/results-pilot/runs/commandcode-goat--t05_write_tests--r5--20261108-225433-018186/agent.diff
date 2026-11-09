@@ -1,0 +1,372 @@
+diff --git a/tests/test_report.py b/tests/test_report.py
+new file mode 100644
+index 0000000..7f82621
+--- /dev/null
++++ b/tests/test_report.py
+@@ -0,0 +1,366 @@
++from datetime import date
++from decimal import Decimal
++
++from ledger import Ledger, Money, Transaction
++from ledger.report import largest_expenses, monthly_summary
++
++
++def tx(d, amount, category="misc", description="", currency="USD"):
++    return Transaction(
++        date=date.fromisoformat(d),
++        description=description or f"{category} {d}",
++        amount=Money(amount, currency=currency),
++        category=category,
++    )
++
++
++def ledger(*transactions):
++    return Ledger(list(transactions))
++
++
++# ---------------------------------------------------------------------------
++# monthly_summary
++# ---------------------------------------------------------------------------
++
++
++def test_monthly_summary_empty_ledger_returns_empty_dict():
++    assert monthly_summary(Ledger()) == {}
++
++
++def test_monthly_summary_single_transaction():
++    summary = monthly_summary(ledger(tx("2026-01-15", "-12.34", "food")))
++
++    assert list(summary) == ["2026-01"]
++    assert summary["2026-01"] == {"food": Money("-12.34")}
++
++
++def test_monthly_summary_sums_multiple_transactions_same_category_same_month():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-03-01", "10.00", "food"),
++            tx("2026-03-02", "-2.50", "food"),
++            tx("2026-03-31", "0.25", "food"),
++        )
++    )
++
++    assert summary == {"2026-03": {"food": Money("7.75")}}
++
++
++def test_monthly_summary_keeps_categories_separate():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-04-01", "-10.00", "food"),
++            tx("2026-04-02", "-20.00", "housing"),
++            tx("2026-04-03", "500.00", "income"),
++        )
++    )
++
++    assert summary["2026-04"] == {
++        "food": Money("-10.00"),
++        "housing": Money("-20.00"),
++        "income": Money("500.00"),
++    }
++    assert len(summary["2026-04"]) == 3
++
++
++def test_monthly_summary_does_not_merge_same_category_across_months():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-01-10", "-10.00", "food"),
++            tx("2026-02-10", "-25.00", "food"),
++        )
++    )
++
++    assert summary == {
++        "2026-01": {"food": Money("-10.00")},
++        "2026-02": {"food": Money("-25.00")},
++    }
++
++
++def test_monthly_summary_sorts_months_chronologically_regardless_of_input_order():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-03-05", "1.00", "a"),
++            tx("2025-12-31", "2.00", "b"),
++            tx("2026-01-01", "3.00", "c"),
++            tx("2025-01-15", "4.00", "d"),
++        )
++    )
++
++    assert list(summary) == ["2025-01", "2025-12", "2026-01", "2026-03"]
++
++
++def test_monthly_summary_zero_pads_single_digit_months():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-01-01", "1.00", "a"),
++            tx("2026-09-01", "1.00", "a"),
++            tx("2026-10-01", "1.00", "a"),
++        )
++    )
++
++    assert list(summary) == ["2026-01", "2026-09", "2026-10"]
++    assert all(len(month) == 7 and month[4] == "-" for month in summary)
++
++
++def test_monthly_summary_year_boundary_is_not_grouped_together():
++    summary = monthly_summary(
++        ledger(
++            tx("2025-12-31", "-5.00", "food"),
++            tx("2026-12-01", "-7.00", "food"),
++        )
++    )
++
++    assert summary["2025-12"]["food"] == Money("-5.00")
++    assert summary["2026-12"]["food"] == Money("-7.00")
++    assert len(summary) == 2
++
++
++def test_monthly_summary_preserves_negative_and_positive_sums():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-05-01", "-100.00", "refund"),
++            tx("2026-05-02", "30.00", "refund"),
++            tx("2026-05-03", "5.00", "income"),
++            tx("2026-05-04", "-2.00", "income"),
++        )
++    )
++
++    assert summary["2026-05"]["refund"] == Money("-70.00")
++    assert summary["2026-05"]["income"] == Money("3.00")
++
++
++def test_monthly_summary_sums_exact_cents_without_float_drift():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-06-01", "0.10", "cash"),
++            tx("2026-06-02", "0.20", "cash"),
++        )
++    )
++
++    assert summary["2026-06"]["cash"] == Money("0.30")
++    assert summary["2026-06"]["cash"].amount == Decimal("0.30")
++
++
++def test_monthly_summary_only_groups_by_date_not_description_or_tags():
++    summary = monthly_summary(
++        ledger(
++            Transaction(date(2026, 7, 1), "same description", Money("1.00"), "food", ("x",)),
++            Transaction(date(2026, 7, 2), "same description", Money("2.00"), "food", ("y",)),
++            Transaction(date(2026, 8, 1), "same description", Money("4.00"), "food", ("x",)),
++        )
++    )
++
++    assert summary["2026-07"]["food"] == Money("3.00")
++    assert summary["2026-08"]["food"] == Money("4.00")
++
++
++def test_monthly_summary_keeps_currency_of_amounts():
++    summary = monthly_summary(
++        ledger(
++            tx("2026-02-01", "-3.00", "food", currency="EUR"),
++            tx("2026-02-02", "-4.50", "food", currency="EUR"),
++        )
++    )
++
++    assert summary["2026-02"]["food"] == Money("-7.50", currency="EUR")
++    assert summary["2026-02"]["food"].currency == "EUR"
++
++
++def test_monthly_summary_does_not_mutate_input_transactions():
++    transactions = [
++        tx("2026-01-01", "10.00", "food"),
++        tx("2026-01-02", "-4.00", "food"),
++    ]
++    original = [(t.date, t.description, t.amount, t.category) for t in transactions]
++
++    monthly_summary(Ledger(transactions))
++
++    assert [
++        (t.date, t.description, t.amount, t.category) for t in transactions
++    ] == original
++
++
++def test_monthly_summary_integration_with_unsorted_mixed_data():
++    data = [
++        tx("2026-02-15", "-50.00", "food"),
++        tx("2026-01-31", "-10.00", "food"),
++        tx("2026-01-01", "2000.00", "income"),
++        tx("2026-02-01", "-1200.00", "housing"),
++        tx("2026-01-15", "-10.00", "food"),
++    ]
++
++    summary = monthly_summary(Ledger(data))
++
++    assert list(summary) == ["2026-01", "2026-02"]
++    assert summary["2026-01"] == {
++        "food": Money("-20.00"),
++        "income": Money("2000.00"),
++    }
++    assert summary["2026-02"] == {
++        "food": Money("-50.00"),
++        "housing": Money("-1200.00"),
++    }
++
++
++# ---------------------------------------------------------------------------
++# largest_expenses
++# ---------------------------------------------------------------------------
++
++
++def test_largest_expenses_empty_ledger_returns_empty_list():
++    assert largest_expenses(Ledger()) == []
++
++
++def test_largest_expenses_returns_most_negative_first():
++    small = tx("2026-01-01", "-5.00")
++    medium = tx("2026-01-02", "-25.00")
++    large = tx("2026-01-03", "-100.00")
++
++    result = largest_expenses(ledger(small, large, medium))
++
++    assert result == [large, medium, small]
++    assert [t.amount for t in result] == [
++        Money("-100.00"),
++        Money("-25.00"),
++        Money("-5.00"),
++    ]
++
++
++def test_largest_expenses_excludes_incomes_and_zero_amounts():
++    expense = tx("2026-01-01", "-10.00", "food")
++    income = tx("2026-01-02", "5000.00", "income")
++    zero = tx("2026-01-03", "0.00", "misc")
++
++    result = largest_expenses(ledger(income, expense, zero))
++
++    assert result == [expense]
++
++
++def test_largest_expenses_all_positive_returns_empty_list():
++    result = largest_expenses(
++        ledger(
++            tx("2026-01-01", "1.00"),
++            tx("2026-01-02", "1000000.00"),
++        )
++    )
++
++    assert result == []
++
++
++def test_largest_expenses_defaults_to_three():
++    transactions = [
++        tx("2026-01-01", "-1.00"),
++        tx("2026-01-02", "-2.00"),
++        tx("2026-01-03", "-3.00"),
++        tx("2026-01-04", "-4.00"),
++        tx("2026-01-05", "-5.00"),
++    ]
++
++    result = largest_expenses(ledger(*transactions))
++
++    assert len(result) == 3
++    assert [t.amount for t in result] == [
++        Money("-5.00"),
++        Money("-4.00"),
++        Money("-3.00"),
++    ]
++
++
++def test_largest_expenses_custom_n_limits_result():
++    transactions = [
++        tx("2026-01-01", "-1.00"),
++        tx("2026-01-02", "-2.00"),
++        tx("2026-01-03", "-3.00"),
++        tx("2026-01-04", "-4.00"),
++    ]
++
++    result = largest_expenses(ledger(*transactions), n=2)
++
++    assert [t.amount for t in result] == [Money("-4.00"), Money("-3.00")]
++
++
++def test_largest_expenses_n_larger_than_number_of_expenses_returns_all():
++    first = tx("2026-01-01", "-1.00")
++    second = tx("2026-01-02", "-2.00")
++
++    result = largest_expenses(ledger(first, second), n=10)
++
++    assert result == [second, first]
++
++
++def test_largest_expenses_single_expense():
++    only = tx("2026-01-01", "-9.99", "food")
++
++    assert largest_expenses(ledger(only)) == [only]
++
++
++def test_largest_expenses_zero_n_returns_empty_list():
++    result = largest_expenses(
++        ledger(
++            tx("2026-01-01", "-1.00"),
++            tx("2026-01-02", "-2.00"),
++        ),
++        n=0,
++    )
++
++    assert result == []
++
++
++def test_largest_expenses_ignores_sign_of_value_except_negativity():
++    small_expense = tx("2026-01-01", "-1.00")
++    big_expense = tx("2026-01-02", "-10000.00")
++    huge_income = tx("2026-01-03", "999999.00")
++
++    result = largest_expenses(ledger(small_expense, huge_income, big_expense))
++
++    assert result == [big_expense, small_expense]
++
++
++def test_largest_expenses_handles_ties_stably_by_input_order():
++    first = tx("2026-01-01", "-10.00", "a")
++    second = tx("2026-01-02", "-10.00", "b")
++    third = tx("2026-01-03", "-10.00", "c")
++    more_negative = tx("2026-01-04", "-20.00", "d")
++
++    result = largest_expenses(ledger(first, second, third, more_negative), n=3)
++
++    assert result == [more_negative, first, second]
++
++
++def test_largest_expenses_returns_original_transaction_objects():
++    expense = tx("2026-01-01", "-42.00", "food", description="Groceries")
++    result = largest_expenses(ledger(expense))
++
++    assert result[0] is expense
++    assert result[0].description == "Groceries"
++    assert result[0].category == "food"
++    assert result[0].date == date(2026, 1, 1)
++
++
++def test_largest_expenses_does_not_include_less_negative_when_n_is_exact():
++    expenses = [
++        tx("2026-01-01", "-1.00"),
++        tx("2026-01-02", "-2.00"),
++        tx("2026-01-03", "-3.00"),
++    ]
++
++    result = largest_expenses(ledger(*expenses), n=2)
++
++    assert Money("-3.00") in [t.amount for t in result]
++    assert Money("-2.00") in [t.amount for t in result]
++    assert Money("-1.00") not in [t.amount for t in result]
++
++
++def test_largest_expenses_does_not_mutate_ledger_transaction_order():
++    transactions = [
++        tx("2026-01-01", "-1.00"),
++        tx("2026-01-02", "-5.00"),
++        tx("2026-01-03", "-3.00"),
++    ]
++    original = list(transactions)
++    l = Ledger(transactions)
++
++    largest_expenses(l, n=2)
++
++    assert l.transactions == original

@@ -1,0 +1,71 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..834cac5 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -1,3 +1,5 @@
++import csv
++import io
+ from datetime import date
+ from .money import Money
+ from .ledger import Transaction
+@@ -7,16 +9,53 @@ HEADER = ["date", "description", "amount", "category", "tags"]
+ 
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+-    tags are separated by ';'. Returns a list of Transaction."""
+-    lines = [l for l in text.strip().splitlines() if l.strip()]
+-    if not lines:
++    tags are separated by ';'. Returns a list of Transaction.
++
++    Standard CSV quoting is supported, including commas and doubled quotes
++    inside quoted fields. Windows line endings are accepted, and a row may
++    omit the trailing tags column (which is treated as no tags).
++    """
++    if text.startswith("\ufeff"):
++        text = text[1:]
++    if not text.strip():
++        return []
++
++    reader = csv.reader(io.StringIO(text, newline=""))
++    rows = []
++    for row in reader:
++        if not row or all(not cell.strip() for cell in row):
++            continue
++        rows.append((row, reader.line_num))
++
++    if not rows:
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
+-    if header != HEADER:
++
++    header_row, _ = rows[0]
++    header = [h.strip() for h in header_row]
++    if header == HEADER:
++        has_tags = True
++    elif header == HEADER[:-1]:
++        has_tags = False
++    else:
+         raise ValueError(f"bad header: {header}")
++
++    expected = 5 if has_tags else 4
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    for row, line_no in rows[1:]:
++        if len(row) == expected:
++            if has_tags:
++                d, desc, amt, cat, tags = row
++            else:
++                d, desc, amt, cat = row
++                tags = ""
++        elif has_tags and len(row) == 4:
++            d, desc, amt, cat = row
++            tags = ""
++        else:
++            raise ValueError(
++                f"wrong number of fields on line {line_no}: "
++                f"expected {expected}, got {len(row)}"
++            )
+         out.append(Transaction(
+             date=date.fromisoformat(d.strip()),
+             description=desc.strip(),

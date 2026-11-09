@@ -1,0 +1,5 @@
+{
+  "extends": "suite_config.json",
+  "proxy_log": "results-smoke/proxy_log.jsonl",
+  "results_dir": "results-smoke"
+}

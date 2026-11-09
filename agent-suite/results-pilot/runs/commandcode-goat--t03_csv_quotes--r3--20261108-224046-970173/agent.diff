@@ -1,0 +1,60 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..d8eaadd 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -1,3 +1,5 @@
++import csv
++import io
+ from datetime import date
+ from .money import Money
+ from .ledger import Transaction
+@@ -8,20 +10,38 @@ HEADER = ["date", "description", "amount", "category", "tags"]
+ def parse_csv(text):
+     """Parse CSV text with header date,description,amount,category,tags.
+     tags are separated by ';'. Returns a list of Transaction."""
+-    lines = [l for l in text.strip().splitlines() if l.strip()]
+-    if not lines:
++    if not text.strip():
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
+-    if header != HEADER:
++    reader = csv.reader(io.StringIO(text, newline=""))
++    try:
++        header = next(reader)
++    except StopIteration:
++        return []
++    header = [h.strip() for h in header]
++    if header not in (HEADER, HEADER[:4]):
+         raise ValueError(f"bad header: {header}")
++
++    allowed_fields = {4, 5} if len(header) == 5 else {4}
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    for row in reader:
++        if not row or all(not field.strip() for field in row):
++            continue
++        line_no = reader.line_num
++        if len(row) not in allowed_fields:
++            expected = "4 or 5" if len(header) == 5 else "4"
++            raise ValueError(
++                f"line {line_no}: expected {expected} fields, got {len(row)}"
++            )
++        d, desc, amt, cat = (field.strip() for field in row[:4])
++        if len(row) == 5:
++            tags = tuple(t.strip() for t in row[4].split(";") if t.strip())
++        else:
++            tags = ()
+         out.append(Transaction(
+-            date=date.fromisoformat(d.strip()),
+-            description=desc.strip(),
+-            amount=Money(amt.strip()),
+-            category=cat.strip(),
+-            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
++            date=date.fromisoformat(d),
++            description=desc,
++            amount=Money(amt),
++            category=cat,
++            tags=tags,
+         ))
+     return out

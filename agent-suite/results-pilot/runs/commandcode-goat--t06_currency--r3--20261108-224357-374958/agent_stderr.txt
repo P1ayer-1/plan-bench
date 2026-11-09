@@ -1,0 +1,236 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -R . | head -100
+.:
+README.md
+ledger
+opencode.json
+tests
+
+./ledger:
+__init__.py
+cli.py
+ledger.py
+money.py
+parser.py
+report.py
+
+./tests:
+test_basic.py
+[0m
+[0m$ [0mgit status && git log --oneline -5
+On branch master
+nothing to commit, working tree clean
+c85a308 base
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead README.md
+[0m→ [0mRead ledger/report.py
+[0m→ [0mRead ledger/cli.py
+[0m→ [0mRead ledger/ledger.py
+[0m→ [0mRead ledger/__init__.py
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
+@@ -2,19 +2,31 @@
+ 
+ CENT = Decimal("0.01")
+ 
+ 
++class CurrencyMismatch(ValueError):
++    """Raised when combining Money values in different currencies."""
++
++
+ class Money:
+     """An amount of money in a single currency, stored to the cent."""
+ 
+     def __init__(self, amount, currency="USD"):
+         self.amount = Decimal(str(amount)).quantize(CENT, rounding=ROUND_HALF_UP)
+         self.currency = currency
+ 
++    def _check_currency(self, other):
++        if self.currency != other.currency:
++            raise CurrencyMismatch(
++                f"currency mismatch: {self.currency} != {other.currency}"
++            )
++
+     def __add__(self, other):
++        self._check_currency(other)
+         return Money(self.amount + other.amount, self.currency)
+ 
+     def __sub__(self, other):
++        self._check_currency(other)
+         return Money(self.amount - other.amount, self.currency)
+ 
+     def __mul__(self, factor):
+         return Money(self.amount * Decimal(str(factor)), self.currency)
+
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/money.py
+@@ -40,8 +40,9 @@
+ def __hash__(self):
+     return hash((self.amount, self.currency))
+ 
+ def __lt__(self, other):
++    self._check_currency(other)
+     return self.amount < other.amount
+ 
+ def __repr__(self):
+     return f"Money('{self.amount}', '{self.currency}')"
+
+[0m
+[0m← [0mEdit ledger/ledger.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/ledger.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/ledger.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/ledger.py
+@@ -32,12 +32,15 @@
+         out.append(tx)
+     return out
+ 
+ def balance(self):
+-    total = Money.zero()
++    totals = {}
+     for tx in self.transactions:
+-        total = total + tx.amount
+-    return total
++        currency = tx.amount.currency
++        if currency not in totals:
++            totals[currency] = Money.zero(currency)
++        totals[currency] = totals[currency] + tx.amount
++    return totals
+ 
+ def dedupe(self):
+     """Remove duplicate transactions (same date, description and amount),
+     keeping the first occurrence and preserving order."""
+
+[0m
+[0m← [0mEdit ledger/report.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/report.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/report.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/report.py
+@@ -1,17 +1,29 @@
+ from .money import Money
+ 
+ 
+ def monthly_summary(ledger):
+-    """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+-    result = {}
++    """Return {"YYYY-MM": {category: Money}} with categories summed per month.
++
++    When a month contains more than one currency, its keys are
++    (category, currency) tuples instead of plain category names.
++    """
++    months = {}
+     for tx in ledger.transactions:
+         m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
++        months.setdefault(m, []).append(tx)
++
++    result = {}
++    for m, txs in months.items():
++        currencies = {tx.amount.currency for tx in txs}
++        mixed = len(currencies) > 1
++        cats = {}
++        for tx in txs:
++            key = (tx.category, tx.amount.currency) if mixed else tx.category
++            if key not in cats:
++                cats[key] = Money.zero(tx.amount.currency)
++            cats[key] = cats[key] + tx.amount
++        result[m] = cats
+     return dict(sorted(result.items()))
+ 
+ 
+ def largest_expenses(ledger, n=3):
+
+[0m
+[0m← [0mEdit ledger/__init__.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/__init__.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/__init__.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/__init__.py
+@@ -1,2 +1,2 @@
+-from .money import Money
++from .money import Money, CurrencyMismatch
+ from .ledger import Ledger, Transaction
+
+[0m
+[0m← [0mEdit ledger/cli.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/cli.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/cli.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/ledger/cli.py
+@@ -16,9 +16,10 @@
+     if args.cmd == "summary":
+         for month, cats in monthly_summary(ledger).items():
+             print(month)
+             for cat, total in sorted(cats.items()):
+-                print(f"  {cat}: {total}")
++                label = f"{cat[0]} ({cat[1]})" if isinstance(cat, tuple) else cat
++                print(f"  {label}: {total}")
+     return 0
+ 
+ 
+ if __name__ == "__main__":
+
+[0m
+[0m← [0mEdit tests/test_basic.py
+Index: /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/tests/test_basic.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/tests/test_basic.py
++++ /suite/results/runs/commandcode-goat--t06_currency--r3--20261108-224357-374958/ws/tests/test_basic.py
+@@ -16,9 +16,9 @@
+ 
+ def test_parse_and_balance():
+     l = Ledger(parse_csv(CSV))
+     assert len(l.transactions) == 3
+-    assert l.balance() == Money("1795.50")
++    assert l.balance() == {"USD": Money("1795.50")}
+ 
+ 
+ def test_query_category():
+     l = Ledger(parse_csv(CSV))
+
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.52s
+[0m
+[0m$ [0mpython - <<'EOF'
+from datetime import date
+from ledger import Money, Ledger, Transaction, CurrencyMismatch
+from ledger.report import monthly_summary
+try:
+    Money(1,'USD') + Money(1,'EUR')
+except CurrencyMismatch as e:
+    print('add raised', e)
+try:
+    Money(1,'USD') < Money(2,'EUR')
+except CurrencyMismatch as e:
+    print('lt raised', e)
+l=Ledger([Transaction(date(2026,1,1),'a',Money(1,'USD'),'food'), Transaction(date(2026,1,2),'b',Money(2,'EUR'),'food'), Transaction(date(2026,2,1),'c',Money(3,'USD'),'food')])
+print(l.balance())
+print(monthly_summary(l))
+print(monthly_summary(Ledger()))
+EOF
+add raised currency mismatch: USD != EUR
+lt raised currency mismatch: USD != EUR
+{'USD': Money('4.00', 'USD'), 'EUR': Money('2.00', 'EUR')}
+{'2026-01': {('food', 'USD'): Money('1.00', 'USD'), ('food', 'EUR'): Money('2.00', 'EUR')}, '2026-02': {'food': Money('3.00', 'USD')}}
+{}
+[0m

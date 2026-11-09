@@ -1,0 +1,262 @@
+{
+  "proxy_host": "127.0.0.1",
+  "proxy_port": 8899,
+  "proxy_log": "results/proxy_log.jsonl",
+  "results_dir": "results",
+  "repeats": 5,
+  "max_repeats": 40,
+  "tasks": "all",
+  "agent_timeout_s": 1200,
+  "wait_on_cap_minutes": 0,
+  "stop_together": true,
+  "task_groups": {
+    "core": [
+      "t01_tags",
+      "t02_split_bug",
+      "t03_csv_quotes",
+      "t04_refactor_report",
+      "t05_write_tests",
+      "t06_currency",
+      "t07_cli_balance",
+      "t08_dedupe_perf"
+    ],
+    "hard": [
+      "t09_recurring",
+      "t10_query_dsl",
+      "t11_reconcile",
+      "t12_fx_rates",
+      "t13_budget_rollover"
+    ]
+  },
+  "sides": [
+    {
+      "name": "deepinfra",
+      "label": "DeepInfra $10 prepaid, reasoning off (its default)",
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "api_key_env": "DEEPINFRA_API_KEY",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "list_price": {
+        "input": 0.15,
+        "cached_input": 0.003,
+        "output": 0.6
+      },
+      "billing": {
+        "basis": "reported_cost",
+        "fallback_price": {
+          "input": 0.098,
+          "cached_input": 0.00294,
+          "output": 0.294
+        }
+      },
+      "budget_usd": 10.0,
+      "plan": {
+        "kind": "payg",
+        "price_usd": 10.0
+      },
+      "cap_detection": {
+        "cap_statuses": [
+          402
+        ],
+        "cap_pattern": "insufficient|balance|payment required|spending limit"
+      },
+      "cap_policy": {
+        "wait_on_cap_minutes": 0
+      },
+      "inject_body": {}
+    },
+    {
+      "name": "deepinfra-reasoning",
+      "label": "DeepInfra $10 prepaid, reasoning_effort=medium",
+      "base_url": "https://api.deepinfra.com/v1/openai",
+      "api_key_env": "DEEPINFRA_API_KEY",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "list_price": {
+        "input": 0.15,
+        "cached_input": 0.003,
+        "output": 0.6
+      },
+      "billing": {
+        "basis": "reported_cost",
+        "fallback_price": {
+          "input": 0.098,
+          "cached_input": 0.00294,
+          "output": 0.294
+        }
+      },
+      "budget_usd": 10.0,
+      "plan": {
+        "kind": "payg",
+        "price_usd": 10.0
+      },
+      "cap_detection": {
+        "cap_statuses": [
+          402
+        ],
+        "cap_pattern": "insufficient|balance|payment required|spending limit"
+      },
+      "cap_policy": {
+        "wait_on_cap_minutes": 0
+      },
+      "inject_body": {
+        "reasoning_effort": "medium"
+      }
+    },
+    {
+      "name": "commandcode-goat",
+      "label": "Command Code GOAT, reasoning on (its default)",
+      "base_url": "https://api.commandcode.ai/provider/v1",
+      "api_key_env": "CMD_API_KEY",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "list_price": {
+        "input": 0.15,
+        "cached_input": 0.003,
+        "output": 0.6
+      },
+      "billing": {
+        "basis": "credits",
+        "rate": {
+          "input": 0.15,
+          "cached_input": 0.003,
+          "output": 0.6
+        },
+        "peak": {
+          "utc_hours": [
+            1,
+            2,
+            3,
+            6,
+            7,
+            8,
+            9
+          ],
+          "weekdays": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "multiplier": 2
+        }
+      },
+      "budget_usd": null,
+      "plan": {
+        "kind": "subscription",
+        "price_usd": 10.0,
+        "monthly_credits_usd": 100.0,
+        "window_5h_usd": 20.0,
+        "weekly_usd": 50.0
+      },
+      "cap_detection": {
+        "cap_statuses": [
+          402
+        ],
+        "cap_pattern": "usage limit|usage exceeded|spending limit|reached your|insufficient credits|out of credits|monthly credits"
+      },
+      "cap_policy": {
+        "wait_on_cap_minutes": 300,
+        "max_cap_waits": null,
+        "max_single_wait_hours": 6
+      },
+      "inject_body": {}
+    },
+    {
+      "name": "commandcode-goat-noreasoning",
+      "label": "Command Code GOAT, reasoning_effort=off",
+      "base_url": "https://api.commandcode.ai/provider/v1",
+      "api_key_env": "CMD_API_KEY",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "list_price": {
+        "input": 0.15,
+        "cached_input": 0.003,
+        "output": 0.6
+      },
+      "billing": {
+        "basis": "credits",
+        "rate": {
+          "input": 0.15,
+          "cached_input": 0.003,
+          "output": 0.6
+        },
+        "peak": {
+          "utc_hours": [
+            1,
+            2,
+            3,
+            6,
+            7,
+            8,
+            9
+          ],
+          "weekdays": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "multiplier": 2
+        }
+      },
+      "budget_usd": null,
+      "plan": {
+        "kind": "subscription",
+        "price_usd": 10.0,
+        "monthly_credits_usd": 100.0,
+        "window_5h_usd": 20.0,
+        "weekly_usd": 50.0
+      },
+      "cap_detection": {
+        "cap_statuses": [
+          402
+        ],
+        "cap_pattern": "usage limit|usage exceeded|spending limit|reached your|insufficient credits|out of credits|monthly credits"
+      },
+      "cap_policy": {
+        "wait_on_cap_minutes": 300,
+        "max_cap_waits": null,
+        "max_single_wait_hours": 6
+      },
+      "inject_body": {
+        "reasoning_effort": "off"
+      }
+    }
+  ],
+  "agent": {
+    "cmd": [
+      "opencode",
+      "run",
+      "--pure",
+      "--auto",
+      "--dir",
+      "{workspace}",
+      "-m",
+      "bench/{model}"
+    ],
+    "config_file": "opencode.json",
+    "config": {
+      "$schema": "https://opencode.ai/config.json",
+      "autoupdate": false,
+      "share": "disabled",
+      "provider": {
+        "bench": {
+          "npm": "@ai-sdk/openai-compatible",
+          "name": "bench",
+          "options": {
+            "baseURL": "{proxy_url}",
+            "apiKey": "proxy-injects-real-key"
+          },
+          "models": {
+            "{model}": {
+              "name": "{model}"
+            }
+          }
+        }
+      },
+      "model": "bench/{model}",
+      "small_model": "bench/{model}"
+    },
+    "isolate_home": true,
+    "prompt_suffix": "\n\nWork only in the current directory. Run the test suite with `python -m pytest -q` before you finish. Do not ask questions; make reasonable decisions and complete the task."
+  }
+}

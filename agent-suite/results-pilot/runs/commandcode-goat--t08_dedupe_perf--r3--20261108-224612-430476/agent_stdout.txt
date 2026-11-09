@@ -1,0 +1,1 @@
+`dedupe()` now uses a `set` for O(n) lookups instead of rescanning the result each iteration. Tests pass (4 passed), and 200k transactions dedupe in ~0.9s.

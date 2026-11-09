@@ -1,0 +1,14 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# per-run agent workspaces (~25 MB each) and harness state; agent.diff, logs and grades are kept
+agent-suite/results*/runs/*/ws/
+agent-suite/results*/runs/*/xdg/
+agent-suite/results*/xdg/
+
+# local scratch
+agent-suite/results-smoke/
+agent-suite/dev/results-mock/
+agent-suite/dev/mock_requests.log
+/results/

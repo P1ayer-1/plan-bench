@@ -1,0 +1,1 @@
+`Ledger.dedupe()` is unusably slow on real exports (it hangs on ~200k transactions). Make it fast enough to dedupe 200,000 transactions in well under 2 seconds, without changing its behaviour: duplicates are transactions with the same date, description and amount; keep the first occurrence; preserve order; return `self`.

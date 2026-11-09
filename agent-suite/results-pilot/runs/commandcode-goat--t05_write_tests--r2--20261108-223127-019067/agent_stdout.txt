@@ -1,0 +1,1 @@
+Created `tests/test_report.py` with 30 focused tests covering month grouping/padding/ordering, category isolation and summation, empty ledgers, currency preservation, expense filtering (excluding income/zero), sorting, `n` bounds, stability, and non-mutation. `python -m pytest -q` passes: 30 passed.

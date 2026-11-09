@@ -1,0 +1,1 @@
+Added `balance` to `ledger/cli.py` with `--since`, `--until` (inclusive), and `--category`. Invalid dates produce a stderr error and exit 2; `summary` still works. All 4 tests pass.

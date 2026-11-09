@@ -1,0 +1,32 @@
+{
+  "budget_value_usd": 10.0,
+  "max_rounds": 200,
+  "request_timeout_s": 600,
+  "wait_on_cap_minutes": 0,
+  "max_cap_waits": 3,
+  "sleep_between_s": 0,
+
+  "endpoints": [
+    {
+      "name": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "list_price": { "input": 0.15, "cached_input": 0.003, "output": 0.60 },
+      "extra_body": {
+        "temperature": 0.2,
+        "max_tokens": 8000,
+        "usage": { "include": true },
+        "provider": { "only": ["deepseek"], "allow_fallbacks": false }
+      }
+    },
+    {
+      "name": "commandcode-goat",
+      "base_url": "https://api.commandcode.ai/provider/v1",
+      "api_key_env": "CMD_API_KEY",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "list_price": { "input": 0.15, "cached_input": 0.003, "output": 0.60 },
+      "extra_body": { "temperature": 0.2, "max_tokens": 8000 }
+    }
+  ]
+}

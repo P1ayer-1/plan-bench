@@ -1,0 +1,320 @@
+{
+  "sides": {
+    "deepinfra": {
+      "label": "DeepInfra $10 prepaid, reasoning off (its default)",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "served_models": [
+        "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+      ],
+      "providers": [
+        "None"
+      ],
+      "first_request": "2026-11-08T22:12:11.869166+00:00",
+      "last_request": "2026-11-08T22:57:53.604938+00:00",
+      "runs_total": 40,
+      "graded_runs": 40,
+      "passed": 40,
+      "pass_rate": 1.0,
+      "pass_rate_95ci": [
+        0.912,
+        1.0
+      ],
+      "visible_tests_passed": 40,
+      "agent_timeouts": 0,
+      "runs_cut_off_by_cap": 0,
+      "requests": 256,
+      "billable_requests": 256,
+      "cap_responses": 0,
+      "rate_limited_responses": 0,
+      "other_errors": 0,
+      "prompt_tokens": 1989141,
+      "cached_tokens": 1670528,
+      "output_tokens": 47566,
+      "reasoning_tokens": 0,
+      "cache_hit_rate": 0.84,
+      "mean_requests_per_run": 6.4,
+      "mean_prompt_tokens_per_run": 49729,
+      "list_value_usd": 0.0813,
+      "billing_basis": "reported_cost",
+      "billed_usd": 0.0501,
+      "billed_missing_reported_cost": 0,
+      "peak_request_share": 0.0,
+      "billed_per_passed_task_usd": 0.0013,
+      "billed_per_graded_run_usd": 0.0013,
+      "billed_per_graded_run_95ci": [
+        0.00115,
+        0.00138
+      ],
+      "list_value_per_passed_task_usd": 0.002,
+      "tool_calls": 203,
+      "malformed_tool_calls": 0,
+      "malformed_tool_call_rate": 0.0,
+      "median_ttft_s": 0.697,
+      "p90_ttft_s": 1.283,
+      "median_headers_s": 0.338,
+      "median_request_latency_s": 1.091,
+      "median_output_tok_per_s": 231.881,
+      "median_wall_s_per_run": 54.75,
+      "passed_tasks_per_10usd": 7980.9,
+      "value_multiple_vs_list": 1.62
+    },
+    "commandcode-goat": {
+      "label": "Command Code GOAT, reasoning on (its default)",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "served_models": [
+        "deepseek/deepseek-v4.1-flash"
+      ],
+      "providers": [
+        "None"
+      ],
+      "first_request": "2026-11-08T22:12:11.697756+00:00",
+      "last_request": "2026-11-08T22:57:49.541388+00:00",
+      "runs_total": 40,
+      "graded_runs": 40,
+      "passed": 40,
+      "pass_rate": 1.0,
+      "pass_rate_95ci": [
+        0.912,
+        1.0
+      ],
+      "visible_tests_passed": 40,
+      "agent_timeouts": 0,
+      "runs_cut_off_by_cap": 0,
+      "requests": 282,
+      "billable_requests": 282,
+      "cap_responses": 0,
+      "rate_limited_responses": 0,
+      "other_errors": 0,
+      "prompt_tokens": 2460372,
+      "cached_tokens": 2040960,
+      "output_tokens": 91880,
+      "reasoning_tokens": 28909,
+      "cache_hit_rate": 0.83,
+      "mean_requests_per_run": 7.0,
+      "mean_prompt_tokens_per_run": 61509,
+      "list_value_usd": 0.1242,
+      "billing_basis": "credits",
+      "billed_usd": 0.1242,
+      "billed_missing_reported_cost": 0,
+      "peak_request_share": 0.0,
+      "billed_per_passed_task_usd": 0.0031,
+      "billed_per_graded_run_usd": 0.0031,
+      "billed_per_graded_run_95ci": [
+        0.00269,
+        0.00356
+      ],
+      "list_value_per_passed_task_usd": 0.0031,
+      "tool_calls": 314,
+      "malformed_tool_calls": 0,
+      "malformed_tool_call_rate": 0.0,
+      "median_ttft_s": 1.373,
+      "p90_ttft_s": 1.593,
+      "median_headers_s": 1.363,
+      "median_request_latency_s": 1.878,
+      "median_output_tok_per_s": 279.563,
+      "median_wall_s_per_run": 71.95,
+      "share_of_monthly_credits_used": 0.0012,
+      "projected_passed_tasks_per_month": 32215.8,
+      "passed_tasks_per_10usd": 32215.8,
+      "plan_dollars_per_passed_task": 0.0003,
+      "value_multiple_vs_list": 10.0,
+      "min_weeks_to_use_monthly_credits": 2.0,
+      "windows_5h": [
+        {
+          "start": "2026-11-08T22:12:11.697756+00:00",
+          "billed": 0.1242,
+          "list_value": 0.1242,
+          "requests": 282,
+          "capped_at": null,
+          "end": "2026-11-09T03:12:11.697756+00:00"
+        }
+      ],
+      "windows_7d": [
+        {
+          "start": "2026-11-08T22:12:11.697756+00:00",
+          "billed": 0.1242,
+          "list_value": 0.1242,
+          "requests": 282,
+          "capped_at": null,
+          "end": "2026-11-15T22:12:11.697756+00:00"
+        }
+      ],
+      "credits_used_in_5h_windows_that_capped": []
+    }
+  },
+  "per_task": [
+    {
+      "side": "deepinfra",
+      "task": "t01_tags",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 68.5,
+      "mean_requests": 6.8,
+      "billed_usd": 0.0051,
+      "list_value_usd": 0.0079
+    },
+    {
+      "side": "deepinfra",
+      "task": "t02_split_bug",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 87.7,
+      "mean_requests": 6.4,
+      "billed_usd": 0.005,
+      "list_value_usd": 0.0078
+    },
+    {
+      "side": "deepinfra",
+      "task": "t03_csv_quotes",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 36.5,
+      "mean_requests": 5.6,
+      "billed_usd": 0.0051,
+      "list_value_usd": 0.0081
+    },
+    {
+      "side": "deepinfra",
+      "task": "t04_refactor_report",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 43.6,
+      "mean_requests": 5.4,
+      "billed_usd": 0.0055,
+      "list_value_usd": 0.0087
+    },
+    {
+      "side": "deepinfra",
+      "task": "t05_write_tests",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 61.6,
+      "mean_requests": 7.2,
+      "billed_usd": 0.0101,
+      "list_value_usd": 0.0174
+    },
+    {
+      "side": "deepinfra",
+      "task": "t06_currency",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 61.6,
+      "mean_requests": 7.0,
+      "billed_usd": 0.0081,
+      "list_value_usd": 0.0136
+    },
+    {
+      "side": "deepinfra",
+      "task": "t07_cli_balance",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 52.4,
+      "mean_requests": 5.8,
+      "billed_usd": 0.006,
+      "list_value_usd": 0.0096
+    },
+    {
+      "side": "deepinfra",
+      "task": "t08_dedupe_perf",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 60.0,
+      "mean_requests": 7.0,
+      "billed_usd": 0.0053,
+      "list_value_usd": 0.0082
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t01_tags",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 50.9,
+      "mean_requests": 6.6,
+      "billed_usd": 0.009,
+      "list_value_usd": 0.009
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t02_split_bug",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 63.9,
+      "mean_requests": 6.2,
+      "billed_usd": 0.0106,
+      "list_value_usd": 0.0106
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t03_csv_quotes",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 72.7,
+      "mean_requests": 8.0,
+      "billed_usd": 0.0169,
+      "list_value_usd": 0.0169
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t04_refactor_report",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 80.0,
+      "mean_requests": 6.6,
+      "billed_usd": 0.0135,
+      "list_value_usd": 0.0135
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t05_write_tests",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 93.7,
+      "mean_requests": 7.0,
+      "billed_usd": 0.0275,
+      "list_value_usd": 0.0275
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t06_currency",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 104.8,
+      "mean_requests": 8.4,
+      "billed_usd": 0.0236,
+      "list_value_usd": 0.0236
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t07_cli_balance",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 67.8,
+      "mean_requests": 6.2,
+      "billed_usd": 0.0133,
+      "list_value_usd": 0.0133
+    },
+    {
+      "side": "commandcode-goat",
+      "task": "t08_dedupe_perf",
+      "runs": 5,
+      "passed": 5,
+      "median_wall_s": 61.0,
+      "mean_requests": 7.4,
+      "billed_usd": 0.0097,
+      "list_value_usd": 0.0097
+    }
+  ],
+  "paired": [
+    {
+      "a": "deepinfra",
+      "b": "commandcode-goat",
+      "both": 40,
+      "only_a": 0,
+      "only_b": 0,
+      "neither": 0,
+      "n": 40,
+      "sign_test_p": null
+    }
+  ],
+  "meters": {}
+}

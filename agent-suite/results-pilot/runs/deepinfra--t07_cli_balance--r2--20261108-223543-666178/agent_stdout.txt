@@ -1,0 +1,1 @@
+Added the `balance` command. It filters via `Ledger.query`, prints `Balance: <amount> <currency>`, returns `0.00 USD` when empty, and invalid dates exit 2. All 6 tests pass.

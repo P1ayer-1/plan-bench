@@ -1,0 +1,5 @@
+Bug report: importing a bank export crashes when a description contains a comma, e.g.
+
+    2026-03-02,"Dinner, with friends",-58.20,food,social
+
+Fix `ledger/parser.py` so it handles standard CSV quoting: quoted fields may contain commas, and a doubled quote inside a quoted field (`""`) means a literal quote. Also make parsing tolerate Windows line endings and a missing trailing `tags` column (treat as no tags). Rows with the wrong number of fields should raise `ValueError` mentioning the line number (1-based, counting the header as line 1).

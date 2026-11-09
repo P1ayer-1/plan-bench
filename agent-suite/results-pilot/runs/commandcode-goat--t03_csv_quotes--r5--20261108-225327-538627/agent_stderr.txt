@@ -1,0 +1,67 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:53 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:53 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 634 Nov  8 22:53 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./.git/hooks/pre-commit.sample
+./.git/hooks/pre-receive.sample
+./.git/hooks/push-to-checkout.sample
+./.git/hooks/fsmonitor-watchman.sample
+./.git/hooks/pre-push.sample
+./.git/hooks/pre-rebase.sample
+./.git/hooks/prepare-commit-msg.sample
+./.git/hooks/applypatch-msg.sample
+./.git/hooks/update.sample
+./.git/hooks/pre-applypatch.sample
+./.git/hooks/pre-merge-commit.sample
+./.git/hooks/commit-msg.sample
+./.git/hooks/post-update.sample
+./.git/description
+./.git/info/exclude
+./.git/HEAD
+./.git/config
+./.git/index
+./.git/COMMIT_EDITMSG
+./.git/logs/HEAD
+./.git/opencode
+./opencode.json
+[0m
+[0m→ [0mRead ledger/parser.py
+[0m→ [0mRead tests/test_basic.py
+[0m→ [0mRead ledger/ledger.py
+[0m
+[0m← [0mWrite ledger/parser.py
+Wrote file successfully.
+[0m
+[0m$ [0mpython -m pytest -q
+....                                                                     [100%]
+4 passed in 0.71s
+[0m
+[0m$ [0mpython - <<'PY'
+from ledger.parser import parse_csv
+s='date,description,amount,category,tags\r\n2026-03-02,"Dinner, with friends",-58.20,food,social\r\n2026-03-03,"Say ""hi"", ok",-1.00,x\r\n'
+for t in parse_csv(s): print(t)
+try:
+    parse_csv('date,description,amount,category,tags\n2026-01-01,a,1,x,y,z\n')
+except ValueError as e:
+    print('ERR', e)
+PY
+Transaction(date=datetime.date(2026, 3, 2), description='Dinner, with friends', amount=Money('-58.20', 'USD'), category='food', tags=('social',))
+Transaction(date=datetime.date(2026, 3, 3), description='Say "hi", ok', amount=Money('-1.00', 'USD'), category='x', tags=())
+ERR line 2: expected 5 fields, got 6
+[0m

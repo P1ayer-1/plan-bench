@@ -1,0 +1,60 @@
+diff --git a/ledger/report.py b/ledger/report.py
+index 0f3c778..6d10283 100644
+--- a/ledger/report.py
++++ b/ledger/report.py
+@@ -1,17 +1,46 @@
++from decimal import Decimal
++
+ from .money import Money
+ 
+ 
++def group_by_month(transactions):
++    """Return {"YYYY-MM": [transactions]} with keys sorted, order preserved."""
++    groups = {}
++    for tx in transactions:
++        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
++        groups.setdefault(m, []).append(tx)
++    return {m: groups[m] for m in sorted(groups)}
++
++
++def totals_by_category(transactions):
++    """Return {category: summed Money}."""
++    totals = {}
++    for tx in transactions:
++        if tx.category not in totals:
++            totals[tx.category] = Money.zero(tx.amount.currency)
++        totals[tx.category] = totals[tx.category] + tx.amount
++    return totals
++
++
+ def monthly_summary(ledger):
+     """Return {"YYYY-MM": {category: Money}} with categories summed per month."""
+-    result = {}
+-    for tx in ledger.transactions:
+-        m = f"{tx.date.year:04d}-{tx.date.month:02d}"
+-        if m not in result:
+-            result[m] = {}
+-        if tx.category not in result[m]:
+-            result[m][tx.category] = Money.zero(tx.amount.currency)
+-        result[m][tx.category] = result[m][tx.category] + tx.amount
+-    return dict(sorted(result.items()))
++    return {
++        month: totals_by_category(txs)
++        for month, txs in group_by_month(ledger.transactions).items()
++    }
++
++
++def category_share(ledger, month):
++    """Return {category: fraction of that month's spending} by absolute value."""
++    transactions = group_by_month(ledger.transactions).get(month, [])
++    spending = [tx for tx in transactions if tx.amount.amount < 0]
++    total = sum((-tx.amount.amount for tx in spending), Decimal("0"))
++    if total == 0:
++        return {}
++    parts = {}
++    for tx in spending:
++        parts[tx.category] = parts.get(tx.category, Decimal("0")) + -tx.amount.amount
++    return {cat: float(amount / total) for cat, amount in parts.items()}
+ 
+ 
+ def largest_expenses(ledger, n=3):

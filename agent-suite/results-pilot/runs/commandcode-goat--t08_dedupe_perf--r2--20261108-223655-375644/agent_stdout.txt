@@ -1,0 +1,1 @@
+Replaced the O(n²) membership scan in `Ledger.dedupe()` (ledger/ledger.py:38) with a hash-set lookup. All 4 tests pass; 200k transactions dedupe in ~1.0s.

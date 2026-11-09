@@ -1,0 +1,6 @@
+All done; `python -m pytest -q` passes (4 passed).
+
+- `CurrencyMismatch` in `ledger/money.py:6`, raised by `+`, `-`, and `<` via `_check_currency`; exported from `ledger/__init__.py`.
+- `Ledger.balance()` now returns `{currency: Money}`, empty `{}` for empty ledger (`ledger/ledger.py:33`).
+- `monthly_summary` groups by `(category, currency)` only for multi-currency months (`ledger/report.py:5`).
+- CLI renders tuple keys as `category / CURRENCY`; test updated for the new balance shape.

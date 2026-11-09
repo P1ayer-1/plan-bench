@@ -1,0 +1,1 @@
+Fixed `Money.split` in `ledger/money.py:40` to distribute cents so parts sum exactly, differ by at most one cent, extras go to earliest parts, and negatives/zero-n are handled. All 4 tests pass.

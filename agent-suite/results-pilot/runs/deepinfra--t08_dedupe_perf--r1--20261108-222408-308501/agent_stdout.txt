@@ -1,0 +1,1 @@
+Done. Replaced the O(n²) list rebuild with a `set` of seen keys in `ledger/ledger.py:33`; 200k transactions now dedupe in ~0.9s. Tests pass.

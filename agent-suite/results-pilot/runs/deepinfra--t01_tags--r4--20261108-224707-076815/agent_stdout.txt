@@ -1,0 +1,1 @@
+Added `tag` filter to `Ledger.query()` and `Ledger.tags()`. All tests pass.

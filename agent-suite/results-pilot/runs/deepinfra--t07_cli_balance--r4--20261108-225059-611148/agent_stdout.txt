@@ -1,0 +1,1 @@
+Done. Added the `balance` subcommand in `ledger/cli.py` with inclusive `--since`/`--until` filters, `--category`, default `Balance: 0.00 USD`, and exit 2 with a stderr error for invalid dates. Tests pass (4 passed).

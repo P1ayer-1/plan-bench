@@ -1,0 +1,1 @@
+Done. Added `balance` with `--since`/`--until`/`--category`, inclusive filtering, `Balance: <amount> <currency>` output, and status 2 on invalid dates. All 4 tests pass.

@@ -1,0 +1,1 @@
+Fixed `Money.split` in `ledger/money.py:40` to distribute integer cents with the remainder going to the earliest parts, handling negatives by magnitude. All 4 tests pass.

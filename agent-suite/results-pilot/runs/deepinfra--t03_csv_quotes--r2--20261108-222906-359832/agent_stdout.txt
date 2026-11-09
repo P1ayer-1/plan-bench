@@ -1,0 +1,1 @@
+Updated `ledger/parser.py` to use the `csv` module: handles quoted commas, doubled quotes, CRLF/CR line endings, and a missing `tags` column. Malformed rows raise `ValueError` with the 1-based line number. Tests pass (`4 passed`).

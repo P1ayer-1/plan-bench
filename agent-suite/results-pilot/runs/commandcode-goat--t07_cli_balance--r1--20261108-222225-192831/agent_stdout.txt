@@ -1,0 +1,1 @@
+Implemented `balance` in `ledger/cli.py`, supporting `--since`, `--until`, and `--category`, with inclusive date filtering, zero fallback, and invalid-date errors exiting 2. Existing `summary` still works; all 4 tests pass.

@@ -1,0 +1,67 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m✱ [0mGlob "**/*.py"[90m 7 matches[0m
+[0m
+[0m$ [0mls -la && git status --short
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:25 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:26 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  8 22:26 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261108-222558-791997/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261108-222558-791997/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t02_split_bug--r2--20261108-222558-791997/ws/ledger/money.py
+@@ -37,11 +37,18 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts whose sum equals the original amount."""
++    if n <= 0:
++        raise ValueError("n must be positive")
+ 
++    total_cents = int(self.amount * 100)
++    sign = -1 if total_cents < 0 else 1
++    base, remainder = divmod(abs(total_cents), n)
++
++    cents = [sign * (base + 1) if i < remainder else sign * base for i in range(n)]
++    return [Money(Decimal(c) / 100, self.currency) for c in cents]
++
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython -m pytest -q && python -c "
+from ledger import Money
+for amt,n in [('10.00',3),('-10.00',3),('0.00',3),('10.00',1),('0.05',2),('-0.05',2)]:
+    parts=Money(amt).split(n)
+    print(amt,n,[str(p.amount) for p in parts], sum(p.amount for p in parts))
+for bad in [0,-1]:
+    try: Money('1').split(bad)
+    except ValueError as e: print('ok',bad)
+"
+....                                                                     [100%]
+4 passed in 0.70s
+10.00 3 ['3.34', '3.33', '3.33'] 10.00
+-10.00 3 ['-3.34', '-3.33', '-3.33'] -10.00
+0.00 3 ['0.00', '0.00', '0.00'] 0.00
+10.00 1 ['10.00'] 10.00
+0.05 2 ['0.03', '0.02'] 0.05
+-0.05 2 ['-0.03', '-0.02'] -0.05
+ok 0
+ok -1
+[0m

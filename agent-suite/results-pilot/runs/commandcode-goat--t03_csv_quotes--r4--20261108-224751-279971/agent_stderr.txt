@@ -1,0 +1,231 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -name "*.py" -not -path "./.git/*" | head -50
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:47 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:47 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 634 Nov  8 22:48 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+[0m
+[0m$ [0mcd /suite/results/runs/commandcode-goat--t03_csv_quotes--r4--20261108-224751-279971/ws && cat ledger/parser.py && echo "=== TEST ===" && cat tests/test_basic.py && echo "=== README ===" && cat README.md
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return []
+    header = [h.strip() for h in lines[0].split(",")]
+    if header != HEADER:
+        raise ValueError(f"bad header: {header}")
+    out = []
+    for line in lines[1:]:
+        d, desc, amt, cat, tags = line.split(",")
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+=== TEST ===
+from datetime import date
+from ledger import Money, Ledger, Transaction
+from ledger.parser import parse_csv
+from ledger.report import monthly_summary
+
+CSV = """date,description,amount,category,tags
+2026-01-03,Coffee,-4.50,food,morning
+2026-01-15,Salary,3000.00,income,
+2026-02-01,Rent,-1200.00,housing,fixed;monthly
+"""
+
+
+def test_money_add():
+    assert Money("1.10") + Money("2.20") == Money("3.30")
+
+
+def test_parse_and_balance():
+    l = Ledger(parse_csv(CSV))
+    assert len(l.transactions) == 3
+    assert l.balance() == Money("1795.50")
+
+
+def test_query_category():
+    l = Ledger(parse_csv(CSV))
+    assert [t.description for t in l.query(category="food")] == ["Coffee"]
+
+
+def test_summary():
+    s = monthly_summary(Ledger(parse_csv(CSV)))
+    assert list(s) == ["2026-01", "2026-02"]
+    assert s["2026-02"]["housing"] == Money("-1200.00")
+=== README ===
+# ledger
+
+A tiny personal-finance library: `Money`, `Transaction`, `Ledger`, a CSV parser,
+reports, and a CLI (`python -m ledger.cli summary file.csv`).
+
+Run tests with `python -m pytest -q`.
+[0m
+[0m$ [0mcd /suite/results/runs/commandcode-goat--t03_csv_quotes--r4--20261108-224751-279971/ws && cat ledger/ledger.py && cat ledger/__init__.py
+from dataclasses import dataclass, field
+from datetime import date
+from .money import Money
+
+
+@dataclass(frozen=True)
+class Transaction:
+    date: date
+    description: str
+    amount: Money
+    category: str
+    tags: tuple = field(default_factory=tuple)
+
+
+class Ledger:
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions or [])
+
+    def add(self, tx):
+        self.transactions.append(tx)
+
+    def query(self, category=None, start=None, end=None):
+        """Return transactions matching all given filters (dates inclusive)."""
+        out = []
+        for tx in self.transactions:
+            if category is not None and tx.category != category:
+                continue
+            if start is not None and tx.date < start:
+                continue
+            if end is not None and tx.date > end:
+                continue
+            out.append(tx)
+        return out
+
+    def balance(self):
+        total = Money.zero()
+        for tx in self.transactions:
+            total = total + tx.amount
+        return total
+
+    def dedupe(self):
+        """Remove duplicate transactions (same date, description and amount),
+        keeping the first occurrence and preserving order."""
+        result = []
+        for tx in self.transactions:
+            key = (tx.date, tx.description, tx.amount)
+            if key not in [(t.date, t.description, t.amount) for t in result]:
+                result.append(tx)
+        self.transactions = result
+        return self
+from .money import Money
+from .ledger import Ledger, Transaction
+[0m
+[0m$ [0mcd /suite/results/runs/commandcode-goat--t03_csv_quotes--r4--20261108-224751-279971/ws && cat > ledger/parser.py <<'PY'
+import csv
+import io
+from datetime import date
+from .money import Money
+from .ledger import Transaction
+
+HEADER = ["date", "description", "amount", "category", "tags"]
+
+
+def parse_csv(text):
+    """Parse CSV text with header date,description,amount,category,tags.
+    tags are separated by ';'. Returns a list of Transaction.
+
+    Standard CSV quoting is supported, including commas and doubled quotes
+    inside quoted fields. Windows line endings are accepted, and a row may
+    omit the trailing tags column (which is treated as no tags).
+    """
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    if not text.strip():
+        return []
+
+    reader = csv.reader(io.StringIO(text, newline=""))
+    rows = []
+    for row in reader:
+        if not row or all(not cell.strip() for cell in row):
+            continue
+        rows.append((row, reader.line_num))
+
+    if not rows:
+        return []
+
+    header_row, _ = rows[0]
+    header = [h.strip() for h in header_row]
+    if header == HEADER:
+        has_tags = True
+    elif header == HEADER[:-1]:
+        has_tags = False
+    else:
+        raise ValueError(f"bad header: {header}")
+
+    expected = 5 if has_tags else 4
+    out = []
+    for row, line_no in rows[1:]:
+        if len(row) == expected:
+            if has_tags:
+                d, desc, amt, cat, tags = row
+            else:
+                d, desc, amt, cat = row
+                tags = ""
+        elif has_tags and len(row) == 4:
+            d, desc, amt, cat = row
+            tags = ""
+        else:
+            raise ValueError(
+                f"wrong number of fields on line {line_no}: "
+                f"expected {expected}, got {len(row)}"
+            )
+        out.append(Transaction(
+            date=date.fromisoformat(d.strip()),
+            description=desc.strip(),
+            amount=Money(amt.strip()),
+            category=cat.strip(),
+            tags=tuple(t.strip() for t in tags.split(";") if t.strip()),
+        ))
+    return out
+PY
+python -m pytest -q
+....                                                                     [100%]
+4 passed in 0.42s
+[0m
+[0m$ [0mcd /suite/results/runs/commandcode-goat--t03_csv_quotes--r4--20261108-224751-279971/ws && python - <<'PY'
+from ledger.parser import parse_csv
+for t in [
+ 'date,description,amount,category,tags\r\n2026-03-02,"Dinner, with friends",-58.20,food,social\r\n',
+ 'date,description,amount,category,tags\n2026-03-02,"He said ""hi""",-1.00,misc\n',
+ 'date,description,amount,category\n2026-03-02,Tea,-1,food\n',
+ 'date,description,amount,category,tags\n2026-03-02,bad,-1,food,extra,oops\n',
+]:
+    try:
+        tx=parse_csv(t); print([(x.description, x.tags, str(x.amount)) for x in tx])
+    except ValueError as e: print('ERR', e)
+PY
+[('Dinner, with friends', ('social',), '-58.20 USD')]
+[('He said "hi"', (), '-1.00 USD')]
+[('Tea', (), '-1.00 USD')]
+ERR wrong number of fields on line 2: expected 5, got 6
+[0m

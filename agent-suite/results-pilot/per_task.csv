@@ -1,0 +1,17 @@
+side,task,runs,passed,median_wall_s,mean_requests,billed_usd,list_value_usd
+deepinfra,t01_tags,5,5,68.5,6.8,0.0051,0.0079
+deepinfra,t02_split_bug,5,5,87.7,6.4,0.005,0.0078
+deepinfra,t03_csv_quotes,5,5,36.5,5.6,0.0051,0.0081
+deepinfra,t04_refactor_report,5,5,43.6,5.4,0.0055,0.0087
+deepinfra,t05_write_tests,5,5,61.6,7.2,0.0101,0.0174
+deepinfra,t06_currency,5,5,61.6,7.0,0.0081,0.0136
+deepinfra,t07_cli_balance,5,5,52.4,5.8,0.006,0.0096
+deepinfra,t08_dedupe_perf,5,5,60.0,7.0,0.0053,0.0082
+commandcode-goat,t01_tags,5,5,50.9,6.6,0.009,0.009
+commandcode-goat,t02_split_bug,5,5,63.9,6.2,0.0106,0.0106
+commandcode-goat,t03_csv_quotes,5,5,72.7,8.0,0.0169,0.0169
+commandcode-goat,t04_refactor_report,5,5,80.0,6.6,0.0135,0.0135
+commandcode-goat,t05_write_tests,5,5,93.7,7.0,0.0275,0.0275
+commandcode-goat,t06_currency,5,5,104.8,8.4,0.0236,0.0236
+commandcode-goat,t07_cli_balance,5,5,67.8,6.2,0.0133,0.0133
+commandcode-goat,t08_dedupe_perf,5,5,61.0,7.4,0.0097,0.0097

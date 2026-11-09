@@ -1,0 +1,9 @@
+Now update tests and add coverage.
+Done. All 8 tests pass.
+
+Changes:
+- `ledger/money.py`: added `CurrencyMismatch(ValueError)`; `+`, `-`, `<` now raise it on currency mismatch.
+- `ledger/ledger.py`: `balance()` returns `{currency: Money}` (`{}` when empty).
+- `ledger/report.py`: `monthly_summary` uses `(category, currency)` keys only for months with multiple currencies.
+- `ledger/cli.py`: handles tuple keys for display.
+- `ledger/__init__.py`: exports `CurrencyMismatch`; tests added/updated.

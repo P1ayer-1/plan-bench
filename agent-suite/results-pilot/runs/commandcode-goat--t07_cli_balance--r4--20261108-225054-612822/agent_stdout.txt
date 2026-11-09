@@ -1,0 +1,1 @@
+Added the `balance` command with `--since`, `--until`, and `--category` filters, inclusive date handling, one-line output, and argparse date validation (exit 2 on invalid dates). Existing `summary` still works; all 4 tests pass.

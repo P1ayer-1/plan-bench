@@ -1,0 +1,9 @@
+Let me add tests for the new behavior to verify correctness.
+Test bug (my `Money("2")` defaults to USD). Fix:
+All 6 tests pass. Changes:
+
+- `ledger/money.py`: added `CurrencyMismatch(ValueError)`; `__add__`, `__sub__`, `__lt__` check currency.
+- `ledger/ledger.py`: `balance()` returns `{currency: Money}`.
+- `ledger/report.py`: `monthly_summary` uses `(category, currency)` keys only for multi-currency months.
+- `ledger/cli.py`: renders tuple keys gracefully.
+- `ledger/__init__.py`: exports `CurrencyMismatch`; tests updated/added.

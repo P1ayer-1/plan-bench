@@ -1,0 +1,8 @@
+Refactored `ledger/report.py:1`:
+
+- `group_by_month` groups by `"YYYY-MM"` with sorted keys and preserves transaction order.
+- `totals_by_category` sums `Money` per category.
+- `monthly_summary` now composes both, output unchanged.
+- `category_share` returns per-category fractions of a month's negative spending, omitting non-spending categories and returning `{}` when there is no spending.
+
+All 4 tests pass.

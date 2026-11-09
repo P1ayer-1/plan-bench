@@ -1,0 +1,7 @@
+I'll start by exploring the codebase to understand the structure and the target module.
+Now I'll write the test file, covering month grouping/ordering, category sums, sign handling, and sorting semantics.
+Done. Added `tests/test_report.py` with 24 tests; full suite passes (28 passed).
+
+Coverage focuses on realistic bugs:
+- **monthly_summary**: month grouping incl. year boundaries, zero-padded keys, chronological (not insertion) ordering, per-month category summing, mixed signs, decimal precision, and no ledger mutation.
+- **largest_expenses**: most-negative-first sorting, exclusing positives/zero, default `n=3`, custom/zero/oversized `n`, sign handling, identity of returned transactions, and no mutation.

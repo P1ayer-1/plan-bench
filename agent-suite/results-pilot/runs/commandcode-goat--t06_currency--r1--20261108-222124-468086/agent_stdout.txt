@@ -1,0 +1,1 @@
+Done. Implemented `CurrencyMismatch`, currency-aware arithmetic/comparison, dict-based `balance()`, mixed-currency `monthly_summary`, CLI label formatting, and updated tests. All 8 tests pass with `python -m pytest -q`.

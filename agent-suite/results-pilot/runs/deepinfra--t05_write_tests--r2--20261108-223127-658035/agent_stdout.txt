@@ -1,0 +1,1 @@
+Done. `tests/test_report.py` now has 33 tests covering month grouping/key formatting/sorting across years, sign handling, category isolation, zero/cancellation cases, expense filtering, ordering, `n` handling, immutability, and transaction identity. All 37 tests pass.

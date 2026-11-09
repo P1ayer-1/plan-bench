@@ -1,0 +1,2 @@
+I'll explore the codebase first to understand the functions.
+Created `tests/test_report.py` with 32 tests covering month grouping, chronological ordering, category separation, sign/cent handling, currency preservation, input immutability, expense filtering, sorting, limits, ties, and mutation safety. `python -m pytest -q` passes: **32 passed**.

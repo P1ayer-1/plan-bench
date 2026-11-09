@@ -1,0 +1,71 @@
+[0m
+> build · deepseek/deepseek-v4.1-flash
+[0m
+[0m$ [0mls -la && find . -maxdepth 3 -type f -not -path './.git/*' | head -100
+total 1024
+drwxrwxrwx 1 root root 512 Nov  8 18:47 .
+drwxrwxrwx 1 root root 512 Nov  8 22:14 ..
+drwxrwxrwx 1 root root 512 Nov  8 22:14 .git
+-rwxrwxrwx 1 root root 192 Nov  8 18:47 README.md
+drwxrwxrwx 1 root root 512 Nov  8 19:08 ledger
+-rwxrwxrwx 1 root root 633 Nov  8 22:14 opencode.json
+drwxrwxrwx 1 root root 512 Nov  8 19:08 tests
+./README.md
+./ledger/cli.py
+./ledger/report.py
+./ledger/ledger.py
+./ledger/__init__.py
+./ledger/parser.py
+./ledger/money.py
+./tests/test_basic.py
+./opencode.json
+[0m
+[0m✱ [0mGrep "def split"[90m 1 match[0m
+[0m→ [0mRead ledger/money.py
+[0m→ [0mRead tests/test_basic.py
+[0m
+[0m← [0mEdit ledger/money.py
+Index: /suite/results/runs/commandcode-goat--t02_split_bug--r1--20261108-221440-462624/ws/ledger/money.py
+===================================================================
+--- /suite/results/runs/commandcode-goat--t02_split_bug--r1--20261108-221440-462624/ws/ledger/money.py
++++ /suite/results/runs/commandcode-goat--t02_split_bug--r1--20261108-221440-462624/ws/ledger/money.py
+@@ -37,11 +37,16 @@
+ def __str__(self):
+     return f"{self.amount} {self.currency}"
+ 
+ def split(self, n):
+-    """Split into n parts."""
+-    part = (self.amount / n).quantize(CENT, rounding=ROUND_HALF_UP)
+-    return [Money(part, self.currency) for _ in range(n)]
++    """Split into n parts that sum exactly, differing by at most one cent."""
++    if n <= 0:
++        raise ValueError("n must be a positive integer")
++    sign = -1 if self.amount < 0 else 1
++    total_cents = abs(int((self.amount / CENT).to_integral_value()))
++    base, remainder = divmod(total_cents, n)
++    parts = [sign * (base + 1) if i < remainder else sign * base for i in range(n)]
++    return [Money(Decimal(cents) / 100, self.currency) for cents in parts]
+ 
+ @classmethod
+ def zero(cls, currency="USD"):
+     return cls(0, currency)
+
+[0m
+[0m$ [0mpython - <<'EOF'
+from ledger import Money
+print([str(x) for x in Money("10.00").split(3)])
+print([str(x) for x in Money("-10.00").split(3)])
+print(sum(Money("10.00").split(3), Money.zero()))
+for n in (0,-1):
+    try: Money("1").split(n)
+    except ValueError as e: print("ValueError", n)
+EOF
+python -m pytest -q
+['3.34 USD', '3.33 USD', '3.33 USD']
+['-3.34 USD', '-3.33 USD', '-3.33 USD']
+10.00 USD
+ValueError 0
+ValueError -1
+....                                                                     [100%]
+4 passed in 1.14s
+[0m

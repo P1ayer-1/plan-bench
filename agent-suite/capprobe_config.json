@@ -1,0 +1,13 @@
+{
+  "extends": "suite_config.json",
+  "proxy_log": "results-capprobe/proxy_log.jsonl",
+  "results_dir": "results-capprobe",
+  "stop_together": false,
+  "max_repeats": 100,
+  "sides": [
+    {
+      "name": "commandcode-goat",
+      "cap_policy": { "wait_on_cap_minutes": 300, "max_cap_waits": null, "max_single_wait_hours": 6 }
+    }
+  ]
+}

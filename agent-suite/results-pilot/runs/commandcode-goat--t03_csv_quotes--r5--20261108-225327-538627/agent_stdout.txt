@@ -1,0 +1,1 @@
+Fixed `ledger/parser.py` to use the `csv` module, handling quoted commas, doubled quotes, CRLF, and optional missing `tags`. Wrong field counts raise `ValueError` with the 1-based line number. `python -m pytest -q` passes (4 passed).

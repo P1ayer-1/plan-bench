@@ -1,0 +1,1 @@
+Done. Added `group_by_month`, `totals_by_category`, refactored `monthly_summary`, and added `category_share`; tests pass (4 passed).

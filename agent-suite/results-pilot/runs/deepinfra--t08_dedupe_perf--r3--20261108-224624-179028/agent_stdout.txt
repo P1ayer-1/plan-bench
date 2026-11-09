@@ -1,0 +1,2 @@
+Money has proper `__hash__`/`__eq__`, so a set works.
+Replaced the O(n²) list scan with a `set` membership check in `ledger/ledger.py:44`. Behaviour unchanged; all tests pass.

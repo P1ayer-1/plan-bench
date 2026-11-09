@@ -1,0 +1,1 @@
+Fixed `ledger/money.py:40`. Remainder cents go to the earliest parts, negatives distribute the same way, and `n <= 0` raises `ValueError`. Tests pass (4 passed).

@@ -1,0 +1,35 @@
+diff --git a/ledger/parser.py b/ledger/parser.py
+index 122f896..74c99cf 100644
+--- a/ledger/parser.py
++++ b/ledger/parser.py
+@@ -1,3 +1,4 @@
++import csv
+ from datetime import date
+ from .money import Money
+ from .ledger import Transaction
+@@ -11,12 +12,22 @@ def parse_csv(text):
+     lines = [l for l in text.strip().splitlines() if l.strip()]
+     if not lines:
+         return []
+-    header = [h.strip() for h in lines[0].split(",")]
++    reader = csv.reader(lines)
++    rows = list(reader)
++    if not rows:
++        return []
++    header = [h.strip() for h in rows[0]]
+     if header != HEADER:
+         raise ValueError(f"bad header: {header}")
+     out = []
+-    for line in lines[1:]:
+-        d, desc, amt, cat, tags = line.split(",")
++    for i, row in enumerate(rows[1:], start=2):
++        if len(row) == 4:
++            row = row + [""]
++        elif len(row) != 5:
++            raise ValueError(
++                f"line {i}: expected 4 or 5 fields, got {len(row)}"
++            )
++        d, desc, amt, cat, tags = row
+         out.append(Transaction(
+             date=date.fromisoformat(d.strip()),
+             description=desc.strip(),
