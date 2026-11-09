@@ -13,7 +13,6 @@ agent-suite/dev/results-mock/
 agent-suite/dev/mock_requests.log
 /results/
 
-.env
 # secrets
 .env
 *.env

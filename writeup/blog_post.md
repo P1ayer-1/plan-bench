@@ -133,8 +133,11 @@ were the agent's own: wrong answers on hard tasks, plus 4 timeouts by the no-rea
 
 ## Caveats
 
-- **The Command Code cost is our estimate** from token counts at their published rates, including the peak
-  multiplier; their API returns no cost. [[Studio's usage meter showed $X over the same period; ratio Y.]]
+- **The Command Code cost is computed, then checked.** The API returns no cost, so I priced each request from
+  its token counts at the published rates, including the peak multiplier. Studio's usage history only goes back
+  100 requests, but all 100 it showed (all at peak) matched my figure exactly, to the request. Pricing them at
+  off-peak rates would have given exactly half. Studio's totals (1,485 requests, 15.8M tokens, about 1% of the
+  monthly allowance) also match the proxy log.
 - **Snapshot.** Command Code's "latest" may not be the exact 1017 weights. Quality was indistinguishable once
   reasoning was matched.
 - **Promos on both sides.** Without DeepInfra's 51% discount, its cost per task roughly doubles and the break-even

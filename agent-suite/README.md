@@ -85,8 +85,10 @@ docker run --rm -v "$PWD:/suite" -e DEEPINFRA_API_KEY -e CMD_API_KEY plan-bench-
 ```
 `run.sh` = preflight → proxy → `run_suite.py` → `analyze.py`. Useful flags: `--tasks t01_tags,t11_reconcile`,
 `--repeats 1`, `--sides deepinfra,commandcode-goat`, `--resume` (skip finished jobs after a restart),
-`CONFIG=smoke_config.json` for trial runs. Afterwards, record the dashboard meter:
-`python analyze.py --meter commandcode-goat=<Studio dollars>`.
+`CONFIG=smoke_config.json` for trial runs. Afterwards, check the Command Code credit estimate against Command Code's own per-request costs:
+put a logged-in Studio Cookie header in `.env` as `COOKIES=...` (gitignored), then run
+`python fetch_cc_usage.py --out results/commandcode_usage.jsonl` and `python meter_check.py`.
+Studio's API only exposes the last 100 requests, so run it right after the benchmark. On 2026-11-09 all 100 matched exactly.
 
 All sides run the same (round, task) jobs in lockstep, so time of day and load hit them equally. Spending the
 full $10 isn't practical: an agent task costs about $0.001–0.01. The report therefore projects "passed tasks per
